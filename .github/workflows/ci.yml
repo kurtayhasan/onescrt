@@ -1,4 +1,3 @@
-# .github/workflows/ci.yml
 name: CI
 
 on:
@@ -10,6 +9,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # DFX’in otomatik kurulacağı dizin
+      DFX_HOME: $HOME/.local/share/dfx
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,22 +33,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps
-
-      - name: Install Playwright system dependencies
-        run: sudo npx playwright install-deps
+      - name: Install Playwright browsers & deps
+        run: |
+          npx playwright install --with-deps
+          sudo apt-get update
+          sudo apt-get install -y libnspr4 libnss3 libasound2
 
       - name: Install DFX
         run: |
-          curl -o- https://sdk.dfinity.org/install.sh | sh
-          source "$HOME/.local/share/dfx/env"
+          curl -fsSL https://sdk.dfinity.org/install.sh | sh
+      - name: Add DFX to PATH
+        # Bütün sonraki adımlarda dfx bulunabilsin diye
+        run: echo "PATH=\$HOME/.local/share/dfx/bin:\$PATH" >> $GITHUB_ENV
+
       - name: Verify dfx
         run: dfx --version
 
       - name: Start local IC replica
         run: dfx start --clean --background
-      - name: Deploy canisters to local
+
+      - name: Deploy canisters locally
         run: dfx deploy --no-wallet
 
       - name: Run Playwright tests
