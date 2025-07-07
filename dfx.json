@@ -1,0 +1,26 @@
+{
+  "canisters": {
+    "onescrt_backend": {
+      "main": "src/onescrt_backend/main.mo",
+      "type": "motoko"
+    },
+    "onescrt_frontend": {
+      "dependencies": [
+        "onescrt_backend"
+      ],
+      "source": [
+        "src/onescrt_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "onescrt_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
