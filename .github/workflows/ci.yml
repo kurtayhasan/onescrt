@@ -1,3 +1,5 @@
+# .github/workflows/ci.yml
+
 name: CI
 
 on:
@@ -42,8 +44,8 @@ jobs:
       - name: Install DFX
         run: |
           curl -fsSL https://sdk.dfinity.org/install.sh | sh
+
       - name: Add DFX to PATH
-        # Bütün sonraki adımlarda dfx bulunabilsin diye
         run: echo "PATH=\$HOME/.local/share/dfx/bin:\$PATH" >> $GITHUB_ENV
 
       - name: Verify dfx
@@ -60,4 +62,5 @@ jobs:
 
       - name: Shutdown replica
         if: always()
+        continue-on-error: true
         run: dfx stop
