@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-        - name: Install Playwright browsers & deps
+      - name: Install Playwright browsers & deps
         run: |
           npx playwright install
           npx playwright install-deps
