@@ -1,50 +1,61 @@
+# .github/workflows/ci.yml
+
 name: CI
 
 on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Repo kökünde çalış
+        working-directory: ${{ github.workspace }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      - name: Install dfx
+      - name: Setup DFX (IC SDK)
         uses: dfinity/setup-dfx@main
         with:
-          # "auto" dfx.json'dan; istersen sabit sürüm yazabilirsin
+          # dfx.json'daki version kullanılacak
           dfx-version: auto
 
-      - name: Verify dfx
+      - name: Verify DFX installed
         run: dfx --version
 
-      - name: Install npm dependencies
+      - name: Install npm deps (frontend)
         run: npm ci
-        working-directory: ./src/onescrt_frontend
+        working-directory: src/onescrt_frontend
 
-      - name: Install Playwright dependencies
-        run: npx playwright install-deps
+      - name: Install Playwright deps
+        run: |
+          npx playwright install
+          npx playwright install-deps
+        working-directory: src/onescrt_frontend
 
-      - name: Start local IC replica
+      - name: Start local replica
         run: dfx start --clean --background
 
-      - name: Deploy canisters locally
-        run: |
-          cd ~/onescrt
-          dfx deploy --no-wallet --yes
+      - name: Deploy canisters
+        run: dfx deploy --no-wallet --yes
 
       - name: Run Playwright tests
         run: npm test
-        working-directory: ./src/onescrt_frontend
+        working-directory: src/onescrt_frontend
 
-      - name: Shutdown replica
+      - name: Stop replica
         if: always()
         run: dfx stop
