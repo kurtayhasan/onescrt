@@ -35,11 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browsers & deps
+        - name: Install Playwright browsers & deps
         run: |
-          npx playwright install --with-deps
-          sudo apt-get update
-          sudo apt-get install -y libnspr4 libnss3 libasound2
+          npx playwright install
+          npx playwright install-deps
+
 
       - name: Install DFX
         run: |
