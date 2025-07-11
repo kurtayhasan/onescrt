@@ -53,8 +53,7 @@ jobs:
         run: dfx deploy --no-wallet --yes
 
       - name: Run Playwright tests
-        run: npm test
-        working-directory: src/onescrt_frontend
+        run: npx playwright test
 
       - name: Stop replica
         if: always()
