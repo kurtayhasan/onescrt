@@ -1,20 +1,29 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IC Hello Starter</title>
+  <title>OneScrt</title>
+  <link rel="stylesheet" href="./style.css" />
 </head>
-
 <body>
-  <div class="browser-warning">
-    ⚠️ If this page appears broken, try reloading. If the problem persists, try switching browsers; Chrome or
-    Firefox are recommended.
-  </div>
-  <div id="root"></div>
-  <script type="module" src="/src/main.js"></script>
-</body>
+  <header>
+    <h1>OneScrt</h1>
+    <p>Share a secret anonymously, receive a random one in return.</p>
+  </header>
 
+  <main>
+    <div class="form-group">
+      <input
+        id="secretInput"
+        type="text"
+        placeholder="Enter your secret here"
+      />
+      <button id="submitBtn">Submit Secret</button>
+      <button id="getBtn">Get a Random Secret</button>
+    </div>
+    <div id="responseBox" class="response"></div>
+  </main>
+
+  <script type="module" src="./index.js"></script>
+</body>
 </html>
