@@ -2,51 +2,55 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
+      # 1) Kodunu çek
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # 2) Node.js kur (frontend için)
       - name: Setup Node.js
-        uses: actions/setup-node@v18
+        uses: actions/setup-node@v3
         with:
           node-version: '18'
 
-      - name: Install npm deps (frontend)
-        working-directory: ./src/onescrt_frontend
+      # 3) Frontend bağımlılıklarını yük
+      - name: Install frontend dependencies
+        working-directory: src/onescrt_frontend
         run: npm ci
 
-      - name: Install Playwright browsers & deps
-        working-directory: ./src/onescrt_frontend
-        run: |
-          npx playwright install-deps
-          npx playwright install
+      # 4) Playwright’ın sistem bağımlılıklarını yükle
+      - name: Install Playwright deps
+        run: npx playwright install-deps
 
+      # 5) DFX’i kur
       - name: Install DFX
-        uses: dfinity/setup-dfx@v1
-        with:
-          version: v0.27.0
-          modify-path: true
+        uses: dfinity/setup-dfx@main
 
-      - name: Verify dfx
-        run: dfx --version
+      # 6) DFX komutunu kullanabilmek için PATH’e ekle
+      - name: Add DFX to PATH
+        run: echo "$HOME/.local/share/dfx/bin" >> $GITHUB_PATH
 
+      # 7) Local IC (replica) başlat
       - name: Start local IC replica
         run: dfx start --background --clean
 
+      # 8) Canister’ları ayağa kaldır (onay sormadan)
       - name: Deploy canisters locally
-        run: dfx deploy --network local --no-wallet --yes
+        run: dfx deploy --no-wallet --network local --no-confirm
 
+      # 9) Playwright testlerini çalıştır
       - name: Run Playwright tests
-        working-directory: ./src/onescrt_frontend   # <-- Burayı ekledik
         run: npx playwright test
 
+      # 10) Her durumda replica’yı kapat
       - name: Stop replica
+        if: always()
         run: dfx stop
