@@ -6,6 +6,7 @@
   "name": "onescrt",
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "test": "playwright test",
     "prebuild": "npm run prebuild --workspaces --if-present",
     "pretest": "npm run prebuild --workspaces --if-present",
     "start": "npm start --workspaces --if-present",
