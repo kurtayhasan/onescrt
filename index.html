@@ -6,15 +6,20 @@
   <title>onescrt - anonymous secrets</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <script defer src="script.js"></script>
+  <style>
+    body {
+      background: linear-gradient(to bottom right, #0f172a, #1e293b);
+    }
+  </style>
 </head>
-<body class="bg-gradient-to-br from-[#0f172a] to-[#1e293b] text-white min-h-screen flex flex-col items-center justify-start px-4 pt-16">
+<body class="text-white min-h-screen flex flex-col items-center justify-start px-4 pt-16 font-sans">
   <div class="max-w-xl w-full text-center mb-8">
     <img src="logo.png" alt="onescrt logo" class="mx-auto mb-4 w-12 h-12">
     <h1 class="text-3xl font-bold mb-1">onescrt</h1>
-    <p class="text-sm text-gray-400">Where your secrets live... and breathe.</p>
+    <p class="text-sm text-gray-300">Where your secrets live... and breathe.</p>
   </div>
 
-  <div class="bg-[#1e293b] p-6 rounded-xl w-full max-w-md shadow-xl mb-6">
+  <div class="bg-gray-900 p-6 rounded-xl w-full max-w-md shadow-xl mb-6">
     <h2 class="text-lg font-semibold mb-3">Share a Secret</h2>
     <textarea id="secretInput" rows="4" class="w-full p-3 rounded bg-gray-800 border border-gray-700 text-white placeholder-gray-400" placeholder="Type your secret... (min 30 characters)"></textarea>
     <div class="flex justify-between mt-4">
@@ -24,7 +29,7 @@
     <p id="sendMsg" class="text-green-400 text-sm mt-3 hidden">✅ Secret submitted. Now you can get one.</p>
   </div>
 
-  <div class="bg-[#1e293b] p-5 rounded-xl w-full max-w-md shadow-md mb-8">
+  <div class="bg-gray-900 p-5 rounded-xl w-full max-w-md shadow-md mb-8">
     <h3 class="text-sm text-rose-300 font-semibold mb-2">📘 How It Works</h3>
     <ul class="text-sm text-gray-300 list-decimal list-inside space-y-1 text-left">
       <li>You must submit a real secret (min 30 chars).</li>
