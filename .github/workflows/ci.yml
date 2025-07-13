@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install frontend dependencies
+      - name: Install frontend deps
         working-directory: src/onescrt_frontend
         run: npm install
 
@@ -40,6 +40,9 @@ jobs:
       - name: Deploy canisters locally
         run: dfx deploy --network local --no-wallet --yes
 
+      - name: Export FRONTEND_URL
+        run: echo "FRONTEND_URL=http://127.0.0.1:8000/?canisterId=$(dfx canister id onescrt_frontend)" >> $GITHUB_ENV
+
       - name: Run Playwright tests
         working-directory: src/onescrt_frontend
         run: npm test
@@ -47,8 +50,6 @@ jobs:
       - name: Stop replica
         if: always()
         run: |
-          if command -v dfx >/dev/null 2>&1; then
+          if command -v dfx >/dev/null; then
             dfx stop
-          else
-            echo "dfx not found, skipping stop"
           fi
