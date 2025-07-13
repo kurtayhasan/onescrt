@@ -44,7 +44,7 @@ jobs:
 
       # 8) Canister’ları ayağa kaldır (onay sormadan)
       - name: Deploy canisters locally
-        run: dfx deploy --no-wallet --network local --no-confirm
+        run: dfx deploy --no-wallet --network local --yes
 
       # 9) Playwright testlerini çalıştır
       - name: Run Playwright tests
