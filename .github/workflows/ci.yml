@@ -1,60 +1,52 @@
-# .github/workflows/ci.yml
-
 name: CI
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+      - master
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        # Repo kökünde çalış
-        working-directory: ${{ github.workspace }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v18
         with:
-          node-version: 18
-
-      - name: Setup DFX (IC SDK)
-        uses: dfinity/setup-dfx@main
-        with:
-          # dfx.json'daki version kullanılacak
-          dfx-version: auto
-
-      - name: Verify DFX installed
-        run: dfx --version
+          node-version: '18'
 
       - name: Install npm deps (frontend)
+        working-directory: ./src/onescrt_frontend
         run: npm ci
-        working-directory: src/onescrt_frontend
 
-      - name: Install Playwright deps
+      - name: Install Playwright browsers & deps
+        working-directory: ./src/onescrt_frontend
         run: |
-          npx playwright install
           npx playwright install-deps
-        working-directory: src/onescrt_frontend
+          npx playwright install
 
-      - name: Start local replica
-        run: dfx start --clean --background
+      - name: Install DFX
+        uses: dfinity/setup-dfx@v1
+        with:
+          version: v0.27.0
+          modify-path: true
 
-      - name: Deploy canisters
-        run: dfx deploy --no-wallet --yes
+      - name: Verify dfx
+        run: dfx --version
+
+      - name: Start local IC replica
+        run: dfx start --background --clean
+
+      - name: Deploy canisters locally
+        run: dfx deploy --network local --no-wallet --yes
 
       - name: Run Playwright tests
+        working-directory: ./src/onescrt_frontend   # <-- Burayı ekledik
         run: npx playwright test
 
       - name: Stop replica
-        if: always()
         run: dfx stop
