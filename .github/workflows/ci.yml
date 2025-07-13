@@ -2,19 +2,16 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
   pull_request:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -23,9 +20,9 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: src/onescrt_frontend
-        run: npm ci
+        run: npm install
 
-      - name: Install Playwright dependencies
+      - name: Install Playwright deps
         working-directory: src/onescrt_frontend
         run: |
           npx playwright install
@@ -49,4 +46,9 @@ jobs:
 
       - name: Stop replica
         if: always()
-        run: dfx stop
+        run: |
+          if command -v dfx >/dev/null 2>&1; then
+            dfx stop
+          else
+            echo "dfx not found, skipping stop"
+          fi
