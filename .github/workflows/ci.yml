@@ -1,17 +1,23 @@
 name: CI
-on: [push,pull_request]
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with: { node-version: '18' }
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
 
-      - name: Install frontend deps
+      - name: Install frontend dependencies
         working-directory: src/onescrt_frontend
         run: npm install
 
@@ -21,28 +27,29 @@ jobs:
           npx playwright install
           npx playwright install-deps
 
-      - name: Install DFX
-        uses: dfinity/setup-dfx@main
+      - uses: dfinity/setup-dfx@main
 
       - name: Add DFX to PATH
         run: echo "$HOME/.local/share/dfx/bin" >> $GITHUB_PATH
 
       - name: Start local IC replica
-        run: dfx start --background --clean
+        run: dfx start --clean --background
 
       - name: Deploy canisters locally
         run: dfx deploy --network local --no-wallet --yes
 
-      - name: Export FRONTEND_URL for Playwright
+      - name: Export FRONTEND_URL
         run: |
           ID=$(dfx canister id onescrt_frontend)
-          echo "FRONTEND_URL=http://127.0.0.1:8000/?canisterId=$ID" >> $GITHUB_ENV
+          echo "FRONTEND_URL=http://127.0.0.1:4943/?canisterId=$ID" >> $GITHUB_ENV
 
       - name: Run Playwright tests
         working-directory: src/onescrt_frontend
         run: npm test
 
-      - name: Stop replica
-        if: always()
+      - if: always()
+        name: Stop replica
         run: |
-          if command -v dfx >/dev/null; then dfx stop; fi
+          if command -v dfx >/dev/null 2>&1; then
+            dfx stop
+          fi
