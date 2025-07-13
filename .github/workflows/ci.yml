@@ -47,8 +47,10 @@ jobs:
         run: dfx deploy --no-wallet --network local --yes
 
       # 9) Playwright testlerini çalıştır
-      - name: Run Playwright tests
-        run: npx playwright test
+       - name: Run Playwright tests
+       working-directory: src/onescrt_frontend
+       run: npm test
+
 
       # 10) Her durumda replica’yı kapat
       - name: Stop replica
