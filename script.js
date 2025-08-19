@@ -3,7 +3,7 @@ const API_URL = "https://rupebvabajtqnwpwytjf.supabase.co/rest/v1/secrets";
 const VIEWS_URL = "https://rupebvabajtqnwpwytjf.supabase.co/rest/v1/secret_views";
 const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1cGVidmFiYWp0cW53cHd5dGpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0NDU1MTAsImV4cCI6MjA2ODAyMTUxMH0.jcPhEvr83w1CJYmyen6k354U2riN3-76WcOmppFsbvg";
 
-// ========== CLIENT_ID (her cihaz için kalıcı) ==========
+// ========== CLIENT_ID (persistent per device) ==========
 let clientId = localStorage.getItem("clientId");
 if (!clientId) {
   clientId = crypto.randomUUID();
@@ -55,6 +55,61 @@ function updateFetchBtnState() {
   }
 }
 
+// modal to show secret
+function showSecretModal(secret) {
+  const overlay = document.createElement("div");
+  overlay.className =
+    "fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50";
+
+  const modal = document.createElement("div");
+  modal.className =
+    "bg-gray-900 text-white max-w-lg w-full rounded-xl shadow-xl p-6 text-center";
+
+  // warning
+  const warning = document.createElement("p");
+  warning.className = "text-sm text-red-400 mb-4";
+  warning.textContent =
+    "⚠️ You can only see this secret once. Once you close it, you cannot open it again!";
+  modal.appendChild(warning);
+
+  // secret text
+  const secretText = document.createElement("p");
+  secretText.className = "text-lg font-mono mb-6 whitespace-pre-line break-words";
+  secretText.textContent = secret;
+  modal.appendChild(secretText);
+
+  // buttons container
+  const btnContainer = document.createElement("div");
+  btnContainer.className = "flex justify-center gap-4";
+
+  // copy button
+  const copyBtn = document.createElement("button");
+  copyBtn.textContent = "Copy to Clipboard";
+  copyBtn.className =
+    "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold";
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(secret);
+      toast("Copied to clipboard!", "success");
+    } catch (err) {
+      toast("Failed to copy", "error");
+    }
+  });
+  btnContainer.appendChild(copyBtn);
+
+  // close button
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "Close";
+  closeBtn.className =
+    "bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-semibold";
+  closeBtn.addEventListener("click", () => overlay.remove());
+  btnContainer.appendChild(closeBtn);
+
+  modal.appendChild(btnContainer);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+}
+
 // ========== SUBMIT ==========
 sendBtn.addEventListener("click", async () => {
   const input = document.getElementById("secretInput");
@@ -100,19 +155,17 @@ sendBtn.addEventListener("click", async () => {
   }
 });
 
-// ========== FETCH (sadece 1 kez) ==========
+// ========== FETCH (only once) ==========
 fetchBtn.addEventListener("click", async () => {
   lock(fetchBtn, true);
 
   try {
-    // daha önce görülen sırlar
     const seenRes = await fetch(`${VIEWS_URL}?select=secret_id&client_id=eq.${clientId}`, {
       headers: { "apikey": API_KEY, "Authorization": `Bearer ${API_KEY}` }
     });
     const seen = await seenRes.json();
     const seenIds = seen.map(r => r.secret_id);
 
-    // sırları çek (kendi sırların hariç)
     const res = await fetch(
       `${API_URL}?select=id,content&client_id=neq.${clientId}&order=created_at.desc&limit=50`,
       { headers: { "apikey": API_KEY, "Authorization": `Bearer ${API_KEY}` } }
@@ -128,9 +181,9 @@ fetchBtn.addEventListener("click", async () => {
 
     if (unseen.length > 0) {
       const random = unseen[Math.floor(Math.random() * unseen.length)];
-      toast("💬 " + random.content, "info");
 
-      // görüldü olarak kaydet
+      showSecretModal(random.content);
+
       await fetch(VIEWS_URL, {
         method: "POST",
         headers: {
