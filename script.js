@@ -37,21 +37,25 @@ function toast(msg, type = "info") {
   setTimeout(() => div.remove(), 2500);
 }
 
-function updateFetchBtnState() {
-  if (localStorage.getItem("hasSentSecret") === "true") {
-    if (localStorage.getItem("hasFetchedSecret") === "true") {
-      fetchBtn.disabled = true;
-      fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
-    } else {
-      fetchBtn.disabled = false;
-      fetchBtn.classList.remove("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
-    }
-  } else {
-    fetchBtn.disabled = true;
-    fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
-    fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
+function updateBtnStates() {
+  // Kullanıcı zaten secret aldıysa → butonlar kapalı
+  if (localStorage.getItem("hasFetchedSecret") === "true") {
+    lock(fetchBtn, true);
+    lock(sendBtn, true);
+    return;
+  }
+
+  // Secret göndermemişse → sadece send açık
+  if (localStorage.getItem("hasSentSecret") !== "true") {
+    lock(sendBtn, false);
+    lock(fetchBtn, true);
+  }
+
+  // Secret göndermiş ama almamışsa → fetch açık
+  if (localStorage.getItem("hasSentSecret") === "true" &&
+      localStorage.getItem("hasFetchedSecret") !== "true") {
+    lock(sendBtn, true); // tekrar gönderemez
+    lock(fetchBtn, false); // sır alabilir
   }
 }
 
@@ -91,7 +95,7 @@ function showSecretModal(secret) {
     try {
       await navigator.clipboard.writeText(secret);
       toast("Copied to clipboard!", "success");
-    } catch (err) {
+    } catch {
       toast("Failed to copy", "error");
     }
   });
@@ -112,6 +116,11 @@ function showSecretModal(secret) {
 
 // ========== SUBMIT ==========
 sendBtn.addEventListener("click", async () => {
+  if (localStorage.getItem("hasSentSecret") === "true") {
+    toast("You already submitted a secret!", "error");
+    return;
+  }
+
   const input = document.getElementById("secretInput");
   const content = input.value.trim();
 
@@ -146,21 +155,18 @@ sendBtn.addEventListener("click", async () => {
     sendMsg.classList.remove("hidden");
     localStorage.setItem("hasSentSecret", "true");
 
-    updateFetchBtnState();
+    updateBtnStates();
     toast("✅ Secret submitted!", "success");
   } catch (e) {
     toast("Error submitting secret: " + e.message, "error");
-  } finally {
-    lock(sendBtn, false);
   }
 });
 
-// ========== FETCH (only once) ==========
-// ========== FETCH (only once) ==========
+// ========== FETCH ==========
 fetchBtn.addEventListener("click", async () => {
   if (localStorage.getItem("hasFetchedSecret") === "true") {
-    toast("⚠️ You have already seen your secret. You cannot fetch again!", "error");
-    return; // ikinci kez çalışmayı engelle
+    toast("⚠️ You already fetched your secret. Cannot fetch again.", "error");
+    return;
   }
 
   lock(fetchBtn, true);
@@ -187,7 +193,6 @@ fetchBtn.addEventListener("click", async () => {
 
     if (unseen.length > 0) {
       const random = unseen[Math.floor(Math.random() * unseen.length)];
-
       showSecretModal(random.content);
 
       await fetch(VIEWS_URL, {
@@ -200,22 +205,18 @@ fetchBtn.addEventListener("click", async () => {
         body: JSON.stringify({ secret_id: random.id, client_id: clientId })
       });
 
-      // 🚨 BURADA BUTONU TAMAMEN KAPATIYORUZ
+      // ✅ artık tamamen kilitle
       localStorage.setItem("hasFetchedSecret", "true");
-      fetchBtn.disabled = true;
-      fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
+      updateBtnStates();
     } else {
       toast("No new secrets found.", "error");
     }
   } catch (e) {
     toast("Error fetching secret: " + e.message, "error");
-  } finally {
-    lock(fetchBtn, true); // hep kilitli kalsın
   }
 });
 
 // ========== INITIALIZE ==========
 window.addEventListener("DOMContentLoaded", () => {
-  updateFetchBtnState();
+  updateBtnStates();
 });
