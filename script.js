@@ -4,12 +4,20 @@ const VIEWS_URL = "https://rupebvabajtqnwpwytjf.supabase.co/rest/v1/secret_views
 const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1cGVidmFiYWp0cW53cHd5dGpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0NDU1MTAsImV4cCI6MjA2ODAyMTUxMH0.jcPhEvr83w1CJYmyen6k354U2riN3-76WcOmppFsbvg";
 
 // ========== CLIENT_ID ==========
-const clientId = crypto.randomUUID(); // sadece random string, kimlik bilgisi değil
+const clientId = crypto.randomUUID(); // sadece anonim random kimlik
 
 // ========== DOM ==========
 const sendBtn = document.getElementById("sendBtn");
 const fetchBtn = document.getElementById("fetchBtn");
 const sendMsg = document.getElementById("sendMsg");
+
+// ========== HELPERS ==========
+function lock(btn, state = true) {
+  if (!btn) return;
+  btn.disabled = state;
+  btn.classList.toggle("opacity-50", state);
+  btn.classList.toggle("cursor-not-allowed", state);
+}
 
 // ========== SUBMIT ==========
 sendBtn.addEventListener("click", async () => {
@@ -25,6 +33,8 @@ sendBtn.addEventListener("click", async () => {
     alert("This doesn't look like a real secret.");
     return;
   }
+
+  lock(sendBtn, true);
 
   try {
     const res = await fetch(API_URL, {
@@ -51,20 +61,24 @@ sendBtn.addEventListener("click", async () => {
     fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
   } catch (e) {
     alert("Error submitting secret: " + e.message);
+  } finally {
+    lock(sendBtn, false);
   }
 });
 
 // ========== FETCH ==========
 fetchBtn.addEventListener("click", async () => {
+  lock(fetchBtn, true);
+
   try {
-    // sırları çek: kendi sırlarını ve daha önce gördüklerini hariç tut
+    // sırları çek (kendi sırların ve daha önce gördüklerin hariç)
     const query = `
       ${API_URL}?select=id,content
       &client_id=neq.${clientId}
       &id=not.in.(select secret_id from secret_views where client_id='${clientId}')
-      &order=random()
-      &limit=1
-    `.replace(/\s+/g, ""); // boşlukları temizle
+      &order=created_at.desc
+      &limit=50
+    `.replace(/\s+/g, "");
 
     const res = await fetch(query, {
       headers: {
@@ -79,12 +93,13 @@ fetchBtn.addEventListener("click", async () => {
     }
 
     const data = await res.json();
-    const random = data[0];
+    const random = data[Math.floor(Math.random() * data.length)];
 
     if (random) {
+      // sır göster
       alert(random.content);
 
-      // gösterildi bilgisini kaydet
+      // gösterildi olarak işaretle
       await fetch(VIEWS_URL, {
         method: "POST",
         headers: {
@@ -99,6 +114,8 @@ fetchBtn.addEventListener("click", async () => {
     }
   } catch (e) {
     alert("Error fetching secret: " + e.message);
+  } finally {
+    lock(fetchBtn, false);
   }
 });
 
