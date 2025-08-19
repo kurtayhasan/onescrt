@@ -115,9 +115,11 @@ function showSecretModal(secret) {
 }
 
 // ========== SUBMIT ==========
+// ========== SUBMIT ==========
 sendBtn.addEventListener("click", async () => {
+  // ✅ Tekrar kontrol: zaten secret göndermişse engelle
   if (localStorage.getItem("hasSentSecret") === "true") {
-    toast("You already submitted a secret!", "error");
+    toast("⚠️ You already submitted a secret. You cannot submit another one.", "error");
     return;
   }
 
@@ -153,7 +155,7 @@ sendBtn.addEventListener("click", async () => {
 
     input.value = "";
     sendMsg.classList.remove("hidden");
-    localStorage.setItem("hasSentSecret", "true");
+    localStorage.setItem("hasSentSecret", "true");  // 🚨 kesin olarak işaretle
 
     updateBtnStates();
     toast("✅ Secret submitted!", "success");
