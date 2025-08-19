@@ -156,7 +156,13 @@ sendBtn.addEventListener("click", async () => {
 });
 
 // ========== FETCH (only once) ==========
+// ========== FETCH (only once) ==========
 fetchBtn.addEventListener("click", async () => {
+  if (localStorage.getItem("hasFetchedSecret") === "true") {
+    toast("⚠️ You have already seen your secret. You cannot fetch again!", "error");
+    return; // ikinci kez çalışmayı engelle
+  }
+
   lock(fetchBtn, true);
 
   try {
@@ -194,15 +200,18 @@ fetchBtn.addEventListener("click", async () => {
         body: JSON.stringify({ secret_id: random.id, client_id: clientId })
       });
 
+      // 🚨 BURADA BUTONU TAMAMEN KAPATIYORUZ
       localStorage.setItem("hasFetchedSecret", "true");
-      updateFetchBtnState();
+      fetchBtn.disabled = true;
+      fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
+      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
     } else {
       toast("No new secrets found.", "error");
     }
   } catch (e) {
     toast("Error fetching secret: " + e.message, "error");
   } finally {
-    lock(fetchBtn, false);
+    lock(fetchBtn, true); // hep kilitli kalsın
   }
 });
 
