@@ -3,8 +3,12 @@ const API_URL = "https://rupebvabajtqnwpwytjf.supabase.co/rest/v1/secrets";
 const VIEWS_URL = "https://rupebvabajtqnwpwytjf.supabase.co/rest/v1/secret_views";
 const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1cGVidmFiYWp0cW53cHd5dGpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0NDU1MTAsImV4cCI6MjA2ODAyMTUxMH0.jcPhEvr83w1CJYmyen6k354U2riN3-76WcOmppFsbvg";
 
-// ========== CLIENT_ID ==========
-const clientId = crypto.randomUUID(); // anonim random id
+// ========== CLIENT_ID (her cihaz için kalıcı) ==========
+let clientId = localStorage.getItem("clientId");
+if (!clientId) {
+  clientId = crypto.randomUUID();
+  localStorage.setItem("clientId", clientId);
+}
 
 // ========== DOM ==========
 const sendBtn = document.getElementById("sendBtn");
@@ -19,7 +23,6 @@ function lock(btn, state = true) {
   btn.classList.toggle("cursor-not-allowed", state);
 }
 
-// toast bildirimi
 function toast(msg, type = "info") {
   const div = document.createElement("div");
   div.textContent = msg;
@@ -34,22 +37,18 @@ function toast(msg, type = "info") {
   setTimeout(() => div.remove(), 2500);
 }
 
-// buton durumunu güncelle
 function updateFetchBtnState() {
   if (localStorage.getItem("hasSentSecret") === "true") {
     if (localStorage.getItem("hasFetchedSecret") === "true") {
-      // sır zaten alındı → kapalı
       fetchBtn.disabled = true;
       fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
       fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
     } else {
-      // sır alabilir → açık
       fetchBtn.disabled = false;
       fetchBtn.classList.remove("opacity-50", "cursor-not-allowed", "bg-gray-600");
       fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
     }
   } else {
-    // hiç sır göndermemiş → kapalı
     fetchBtn.disabled = true;
     fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
     fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
@@ -92,7 +91,7 @@ sendBtn.addEventListener("click", async () => {
     sendMsg.classList.remove("hidden");
     localStorage.setItem("hasSentSecret", "true");
 
-    updateFetchBtnState(); // submit sonrası buton durumu güncellensin
+    updateFetchBtnState();
     toast("✅ Secret submitted!", "success");
   } catch (e) {
     toast("Error submitting secret: " + e.message, "error");
@@ -142,7 +141,6 @@ fetchBtn.addEventListener("click", async () => {
         body: JSON.stringify({ secret_id: random.id, client_id: clientId })
       });
 
-      // butonu kapat → sadece 1 kez sır alabilir
       localStorage.setItem("hasFetchedSecret", "true");
       updateFetchBtnState();
     } else {
