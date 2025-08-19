@@ -19,18 +19,32 @@ function lock(btn, state = true) {
   btn.classList.toggle("cursor-not-allowed", state);
 }
 
+// basit toast mesajı (alert yerine daha şık)
+function toast(msg, type = "info") {
+  const div = document.createElement("div");
+  div.textContent = msg;
+  div.className =
+    "fixed bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg text-sm text-white " +
+    (type === "error"
+      ? "bg-red-600"
+      : type === "success"
+      ? "bg-green-600"
+      : "bg-gray-700");
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 2500);
+}
+
 // ========== SUBMIT ==========
 sendBtn.addEventListener("click", async () => {
   const input = document.getElementById("secretInput");
   const content = input.value.trim();
 
-  // validasyon
   if (content.length < 30) {
-    alert("Please enter at least 30 characters.");
+    toast("Please enter at least 30 characters.", "error");
     return;
   }
   if (/^(.)\1{10,}$/.test(content) || /^[^a-zA-Z0-9]+$/.test(content)) {
-    alert("This doesn't look like a real secret.");
+    toast("This doesn't look like a real secret.", "error");
     return;
   }
 
@@ -56,14 +70,16 @@ sendBtn.addEventListener("click", async () => {
     sendMsg.classList.remove("hidden");
     localStorage.setItem("hasSentSecret", "true");
 
-    // sır çekme aktif olsun
+    // sır çekme butonunu aktif et
     if (!localStorage.getItem("hasFetchedSecret")) {
       fetchBtn.disabled = false;
       fetchBtn.classList.remove("opacity-50", "cursor-not-allowed", "bg-gray-600");
       fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
     }
+
+    toast("✅ Secret submitted!", "success");
   } catch (e) {
-    alert("Error submitting secret: " + e.message);
+    toast("Error submitting secret: " + e.message, "error");
   } finally {
     lock(sendBtn, false);
   }
@@ -74,7 +90,7 @@ fetchBtn.addEventListener("click", async () => {
   lock(fetchBtn, true);
 
   try {
-    // daha önce gördüğün sırları çek
+    // daha önce görülen sırlar
     const seenRes = await fetch(`${VIEWS_URL}?select=secret_id&client_id=eq.${clientId}`, {
       headers: { "apikey": API_KEY, "Authorization": `Bearer ${API_KEY}` }
     });
@@ -84,12 +100,7 @@ fetchBtn.addEventListener("click", async () => {
     // sırları çek (kendi sırların hariç)
     const res = await fetch(
       `${API_URL}?select=id,content&client_id=neq.${clientId}&order=created_at.desc&limit=50`,
-      {
-        headers: {
-          "apikey": API_KEY,
-          "Authorization": `Bearer ${API_KEY}`
-        }
-      }
+      { headers: { "apikey": API_KEY, "Authorization": `Bearer ${API_KEY}` } }
     );
 
     if (!res.ok) {
@@ -102,7 +113,9 @@ fetchBtn.addEventListener("click", async () => {
 
     if (unseen.length > 0) {
       const random = unseen[Math.floor(Math.random() * unseen.length)];
-      alert(random.content);
+
+      // sır içeriğini toast yerine modal/alert gösterebilirsin
+      toast("💬 " + random.content, "info");
 
       // görüldü olarak kaydet
       await fetch(VIEWS_URL, {
@@ -121,10 +134,12 @@ fetchBtn.addEventListener("click", async () => {
       fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
       localStorage.setItem("hasFetchedSecret", "true");
     } else {
-      alert("No new secrets found.");
+      toast("No new secrets found.", "error");
     }
   } catch (e) {
-    alert("Error fetching secret: " + e.message);
+    toast("Error fetching secret: " + e.message, "error");
+  } finally {
+    lock(fetchBtn, false);
   }
 });
 
@@ -135,6 +150,7 @@ window.addEventListener("DOMContentLoaded", () => {
       // sır zaten alındı → buton kapalı
       fetchBtn.disabled = true;
       fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
+      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
     } else {
       // sır alabilir
       fetchBtn.disabled = false;
