@@ -19,12 +19,12 @@ function lock(btn, state = true) {
   btn.classList.toggle("cursor-not-allowed", state);
 }
 
-// basit toast mesajı (alert yerine daha şık)
+// toast bildirimi
 function toast(msg, type = "info") {
   const div = document.createElement("div");
   div.textContent = msg;
   div.className =
-    "fixed bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg text-sm text-white " +
+    "fixed bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg text-sm text-white z-50 " +
     (type === "error"
       ? "bg-red-600"
       : type === "success"
@@ -32,6 +32,28 @@ function toast(msg, type = "info") {
       : "bg-gray-700");
   document.body.appendChild(div);
   setTimeout(() => div.remove(), 2500);
+}
+
+// buton durumunu güncelle
+function updateFetchBtnState() {
+  if (localStorage.getItem("hasSentSecret") === "true") {
+    if (localStorage.getItem("hasFetchedSecret") === "true") {
+      // sır zaten alındı → kapalı
+      fetchBtn.disabled = true;
+      fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
+      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
+    } else {
+      // sır alabilir → açık
+      fetchBtn.disabled = false;
+      fetchBtn.classList.remove("opacity-50", "cursor-not-allowed", "bg-gray-600");
+      fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
+    }
+  } else {
+    // hiç sır göndermemiş → kapalı
+    fetchBtn.disabled = true;
+    fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
+    fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
+  }
 }
 
 // ========== SUBMIT ==========
@@ -70,13 +92,7 @@ sendBtn.addEventListener("click", async () => {
     sendMsg.classList.remove("hidden");
     localStorage.setItem("hasSentSecret", "true");
 
-    // sır çekme butonunu aktif et
-    if (!localStorage.getItem("hasFetchedSecret")) {
-      fetchBtn.disabled = false;
-      fetchBtn.classList.remove("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
-    }
-
+    updateFetchBtnState(); // submit sonrası buton durumu güncellensin
     toast("✅ Secret submitted!", "success");
   } catch (e) {
     toast("Error submitting secret: " + e.message, "error");
@@ -113,8 +129,6 @@ fetchBtn.addEventListener("click", async () => {
 
     if (unseen.length > 0) {
       const random = unseen[Math.floor(Math.random() * unseen.length)];
-
-      // sır içeriğini toast yerine modal/alert gösterebilirsin
       toast("💬 " + random.content, "info");
 
       // görüldü olarak kaydet
@@ -129,10 +143,8 @@ fetchBtn.addEventListener("click", async () => {
       });
 
       // butonu kapat → sadece 1 kez sır alabilir
-      fetchBtn.disabled = true;
-      fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
       localStorage.setItem("hasFetchedSecret", "true");
+      updateFetchBtnState();
     } else {
       toast("No new secrets found.", "error");
     }
@@ -145,17 +157,5 @@ fetchBtn.addEventListener("click", async () => {
 
 // ========== INITIALIZE ==========
 window.addEventListener("DOMContentLoaded", () => {
-  if (localStorage.getItem("hasSentSecret") === "true") {
-    if (localStorage.getItem("hasFetchedSecret") === "true") {
-      // sır zaten alındı → buton kapalı
-      fetchBtn.disabled = true;
-      fetchBtn.classList.add("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.remove("bg-purple-600", "hover:bg-purple-700");
-    } else {
-      // sır alabilir
-      fetchBtn.disabled = false;
-      fetchBtn.classList.remove("opacity-50", "cursor-not-allowed", "bg-gray-600");
-      fetchBtn.classList.add("bg-purple-600", "hover:bg-purple-700");
-    }
-  }
+  updateFetchBtnState();
 });
