@@ -71,21 +71,23 @@ fetchBtn.addEventListener("click", async () => {
   lock(fetchBtn, true);
 
   try {
-    // sırları çek (kendi sırların ve daha önce gördüklerin hariç)
-    const query = `
-      ${API_URL}?select=id,content
-      &client_id=neq.${clientId}
-      &id=not.in.(select secret_id from secret_views where client_id='${clientId}')
-      &order=created_at.desc
-      &limit=50
-    `.replace(/\s+/g, "");
-
-    const res = await fetch(query, {
-      headers: {
-        "apikey": API_KEY,
-        "Authorization": `Bearer ${API_KEY}`
-      }
+    // 1) Daha önce gördüğün sırların id’lerini çek
+    const seenRes = await fetch(`${VIEWS_URL}?select=secret_id&client_id=eq.${clientId}`, {
+      headers: { "apikey": API_KEY, "Authorization": `Bearer ${API_KEY}` }
     });
+    const seen = await seenRes.json();
+    const seenIds = seen.map(r => r.secret_id);
+
+    // 2) Yeni sırları çek (kendi sırlarını hariç)
+    const res = await fetch(
+      `${API_URL}?select=id,content&client_id=neq.${clientId}&order=created_at.desc&limit=50`,
+      {
+        headers: {
+          "apikey": API_KEY,
+          "Authorization": `Bearer ${API_KEY}`
+        }
+      }
+    );
 
     if (!res.ok) {
       const t = await res.text();
@@ -93,13 +95,15 @@ fetchBtn.addEventListener("click", async () => {
     }
 
     const data = await res.json();
-    const random = data[Math.floor(Math.random() * data.length)];
+
+    // 3) Daha önce görülmeyen sırları filtrele
+    const unseen = data.filter(item => !seenIds.includes(item.id));
+    const random = unseen[Math.floor(Math.random() * unseen.length)];
 
     if (random) {
-      // sır göster
       alert(random.content);
 
-      // gösterildi olarak işaretle
+      // 4) Bu sır artık görüldü → secret_views’a kaydet
       await fetch(VIEWS_URL, {
         method: "POST",
         headers: {
@@ -110,7 +114,7 @@ fetchBtn.addEventListener("click", async () => {
         body: JSON.stringify({ secret_id: random.id, client_id: clientId })
       });
     } else {
-      alert("No secrets found.");
+      alert("No new secrets found.");
     }
   } catch (e) {
     alert("Error fetching secret: " + e.message);
