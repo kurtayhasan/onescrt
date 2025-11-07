@@ -21,12 +21,33 @@ An anonymous secret-sharing platform with end-to-end encryption using RSA-OAEP 4
 
 ## Setup Instructions
 
+### ⚠️ IMPORTANT: CORS Configuration (REQUIRED)
+
+**Before anything else, configure CORS in Supabase:**
+
+1. Go to Supabase Dashboard: https://supabase.com/dashboard
+2. Select your project
+3. Go to **Settings** > **API**
+4. Scroll down to **CORS** section
+5. Add your domain(s):
+   - Your production domain (e.g., `https://yourdomain.com`)
+   - For Vercel: `https://*.vercel.app`
+   - For Netlify: `https://*.netlify.app`
+   - For GitHub Pages: `https://*.github.io`
+   - For local dev: `http://localhost:8000`
+6. Click **Save**
+
+**⚠️ Without CORS configuration, the app will NOT work!**
+
+See `CORS-SETUP.md` for detailed instructions.
+
 ### 1. Database Setup
 
 1. Go to your Supabase project dashboard
 2. Navigate to the SQL Editor
 3. Copy and paste the contents of `supabase-schema.sql`
 4. Run the SQL script to create all tables, functions, and policies
+5. Verify tables are created in **Table Editor**
 
 ### 2. Local Development
 

@@ -11,13 +11,36 @@ function initSupabase() {
       console.error("Supabase library not loaded!");
       return null;
     }
+    
+    // Validate URL and API key
+    if (!SUPABASE_URL || !API_KEY) {
+      console.error("❌ Supabase URL or API key is missing!");
+      return null;
+    }
+    
+    // Create Supabase client with proper configuration
     supabaseClient = supabase.createClient(SUPABASE_URL, API_KEY, {
       auth: {
         persistSession: false,
-        autoRefreshToken: false
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      },
+      global: {
+        headers: {
+          'apikey': API_KEY,
+        }
+      },
+      db: {
+        schema: 'public'
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 10
+        }
       }
     });
-    console.log("✅ Supabase client initialized");
+    
+    console.log("✅ Supabase client initialized with URL:", SUPABASE_URL);
     return supabaseClient;
   } catch (error) {
     console.error("❌ Error initializing Supabase client:", error);
@@ -638,6 +661,10 @@ async function testSupabaseConnection() {
   }
 
   try {
+    // First, test with a simple REST API call to verify CORS
+    console.log("Testing Supabase connection...");
+    console.log("URL:", SUPABASE_URL);
+    
     // Test connection by trying to read from profiles table
     // Use a simple query that won't fail even if table is empty
     const { data, error, status, statusText } = await supabaseClient
@@ -645,28 +672,50 @@ async function testSupabaseConnection() {
       .select('client_id')
       .limit(1);
     
-    console.log("Connection test response:", { data, error, status, statusText });
+    console.log("Connection test response:", { 
+      hasData: !!data, 
+      dataLength: data?.length || 0,
+      error: error ? {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      } : null,
+      status: status,
+      statusText: statusText
+    });
     
     if (error) {
       console.error("Supabase connection test failed:", error);
       
-      // Provide specific error messages
-      let errorMsg = error.message;
+      // Provide specific error messages based on error code
+      let errorMsg = error.message || "Unknown error";
+      let detailedHelp = "";
+      
       if (error.code === "PGRST116") {
-        errorMsg = "Table 'profiles' does not exist. Please run supabase-schema.sql in Supabase SQL Editor.";
-      } else if (error.code === "PGRST301") {
-        errorMsg = "CORS error. Please configure CORS in Supabase Settings > API.";
-      } else if (error.message && error.message.includes("fetch")) {
-        errorMsg = "Network error. Check your internet connection and Supabase URL.";
+        errorMsg = "Table 'profiles' does not exist.";
+        detailedHelp = "Please run supabase-schema.sql in Supabase SQL Editor.";
+      } else if (error.code === "PGRST301" || error.message?.includes("CORS")) {
+        errorMsg = "CORS error detected.";
+        detailedHelp = "Go to Supabase Dashboard > Settings > API > CORS and add your domain:\n" + window.location.origin;
+      } else if (error.message?.includes("fetch") || error.message?.includes("NetworkError") || error.message?.includes("Failed to fetch")) {
+        errorMsg = "Network/CORS error.";
+        detailedHelp = "Possible causes:\n1. CORS not configured in Supabase\n2. Wrong Supabase URL\n3. Network connection issue\n4. Supabase project paused\n\nYour current domain: " + window.location.origin + "\n\nAdd this to Supabase CORS settings!";
+      } else if (error.code === "PGRST204" || status === 204) {
+        // 204 is actually success (no content) - table exists but is empty
+        console.log("✅ Connection successful (empty table)");
+        return { success: true, status: status };
       }
       
       return {
         success: false,
         error: errorMsg,
+        help: detailedHelp,
         code: error.code,
         details: error.details || error.hint || "",
         status: status,
-        statusText: statusText
+        statusText: statusText,
+        currentDomain: window.location.origin
       };
     }
     
@@ -674,17 +723,28 @@ async function testSupabaseConnection() {
     return { success: true, status: status };
   } catch (e) {
     console.error("Supabase connection test exception:", e);
-    let errorMsg = e.message;
+    let errorMsg = e.message || "Unknown error";
+    let detailedHelp = "";
     
-    if (e.message && e.message.includes("fetch")) {
-      errorMsg = "Network error. Possible causes:\n1. No internet connection\n2. Wrong Supabase URL\n3. CORS not configured\n4. Supabase project paused";
+    if (e.message?.includes("fetch") || e.name === "TypeError" || e.message?.includes("NetworkError")) {
+      errorMsg = "Network/CORS error.";
+      detailedHelp = "CRITICAL: CORS is not configured!\n\n" +
+        "To fix:\n" +
+        "1. Go to Supabase Dashboard\n" +
+        "2. Settings > API > CORS\n" +
+        "3. Add your domain: " + window.location.origin + "\n" +
+        "4. Save and refresh this page\n\n" +
+        "Current domain: " + window.location.origin + "\n" +
+        "Supabase URL: " + SUPABASE_URL;
     }
     
     return {
       success: false,
       error: errorMsg,
+      help: detailedHelp,
       type: e.name || "NetworkError",
-      stack: e.stack
+      stack: e.stack,
+      currentDomain: window.location.origin
     };
   }
 }
@@ -789,9 +849,22 @@ async function submitSecret() {
     console.error("Submit secret error:", e);
     let errorMessage = e.message;
     
-    // Handle network errors
-    if (e.message.includes("fetch") || e.name === "TypeError") {
-      errorMessage = "Network error. Please check:\n1. Your internet connection\n2. Supabase URL and API key in script.js\n3. CORS settings in Supabase\n4. That supabase-schema.sql has been run";
+    // Handle network/CORS errors with detailed instructions
+    if (e.message.includes("fetch") || e.name === "TypeError" || e.message.includes("NetworkError") || e.message.includes("CORS")) {
+      errorMessage = "🚨 CORS/Network Error!\n\n" +
+        "Your domain: " + window.location.origin + "\n\n" +
+        "Quick Fix:\n" +
+        "1. Go to Supabase Dashboard\n" +
+        "2. Settings > API > CORS\n" +
+        "3. Add: " + window.location.origin + "\n" +
+        "4. Save and refresh\n\n" +
+        "See console (F12) for details.";
+      
+      console.error("=== CORS SETUP REQUIRED ===");
+      console.error("Current domain:", window.location.origin);
+      console.error("Add this to Supabase CORS settings!");
+      console.error("Supabase Dashboard > Settings > API > CORS");
+      console.error("========================");
     }
     
     toast("Error submitting secret: " + errorMessage, "error");
@@ -917,20 +990,41 @@ async function initializeApp() {
   
   // Test Supabase connection on load
   console.log("Testing Supabase connection...");
+  console.log("Current domain:", window.location.origin);
+  console.log("Supabase URL:", SUPABASE_URL);
+  
   const connectionTest = await testSupabaseConnection();
   if (!connectionTest.success) {
     console.error("Supabase connection test failed:", connectionTest);
     let errorMessage = connectionTest.error;
     
+    // Show detailed help message
+    if (connectionTest.help) {
+      errorMessage += "\n\n" + connectionTest.help;
+    }
+    
     if (connectionTest.code === "PGRST116") {
-      errorMessage = "⚠️ Database tables not found. Please run supabase-schema.sql in Supabase SQL Editor.";
+      errorMessage = "⚠️ Database tables not found.\n\n" + (connectionTest.help || "Please run supabase-schema.sql in Supabase SQL Editor.");
     } else if (connectionTest.type === "InitializationError") {
-      errorMessage = "⚠️ Supabase library not loaded. Check your internet connection.";
-    } else if (connectionTest.error && connectionTest.error.includes("fetch")) {
-      errorMessage = "⚠️ Cannot connect to Supabase. Check:\n1. Internet connection\n2. Supabase URL in script.js\n3. CORS settings in Supabase";
+      errorMessage = "⚠️ Supabase library not loaded.\n\nCheck your internet connection and refresh the page.";
+    } else if (connectionTest.error && (connectionTest.error.includes("fetch") || connectionTest.error.includes("CORS") || connectionTest.error.includes("Network"))) {
+      errorMessage = "🚨 CORS ERROR - Configuration Required!\n\n" +
+        "Your domain: " + (connectionTest.currentDomain || window.location.origin) + "\n\n" +
+        "To fix:\n" +
+        "1. Go to Supabase Dashboard\n" +
+        "2. Settings > API > CORS\n" +
+        "3. Add: " + window.location.origin + "\n" +
+        "4. Save and refresh this page\n\n" +
+        "See CORS-SETUP.md for detailed instructions.";
     }
     
     toast(errorMessage, "error");
+    
+    // Also log to console for debugging
+    console.error("=== CORS SETUP REQUIRED ===");
+    console.error("Add this domain to Supabase CORS:", window.location.origin);
+    console.error("Supabase Dashboard > Settings > API > CORS");
+    console.error("========================");
   } else {
     console.log("✅ Supabase connection successful");
   }
