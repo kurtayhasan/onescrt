@@ -293,12 +293,12 @@ function lock(btn, state = true) {
 
 function toast(msg, type = "info") {
   const div = document.createElement("div");
-  div.textContent = msg;
+  div.innerHTML = msg.replace(/\n/g, "<br>");
   div.className =
-    "fixed bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg text-sm text-white z-50 " +
+    "fixed bottom-4 left-1/2 transform -translate-x-1/2 px-4 py-2 rounded shadow-lg text-sm text-white z-50 max-w-md text-center " +
     (type === "error" ? "bg-red-600" : type === "success" ? "bg-green-600" : "bg-gray-700");
   document.body.appendChild(div);
-  setTimeout(() => div.remove(), 3000);
+  setTimeout(() => div.remove(), 5000);
 }
 
 function updateBtnStates() {
@@ -574,6 +574,36 @@ async function showInboxModal() {
 
 // ========== MAIN FUNCTIONS ==========
 
+// ========== SUPABASE CONNECTION TEST ==========
+async function testSupabaseConnection() {
+  try {
+    // Test connection by trying to read from profiles table
+    const { data, error } = await supabaseClient
+      .from('profiles')
+      .select('client_id')
+      .limit(1);
+    
+    if (error) {
+      console.error("Supabase connection test failed:", error);
+      return {
+        success: false,
+        error: error.message,
+        code: error.code,
+        details: error.details || error.hint || ""
+      };
+    }
+    
+    return { success: true };
+  } catch (e) {
+    console.error("Supabase connection test exception:", e);
+    return {
+      success: false,
+      error: e.message,
+      type: e.name || "NetworkError"
+    };
+  }
+}
+
 async function submitSecret() {
   const identity = await getOrInitializeIdentity();
   if (!identity) {
@@ -602,15 +632,44 @@ async function submitSecret() {
   lock(sendBtn, true);
 
   try {
-    const { error } = await supabaseClient
+    // First test connection
+    const connectionTest = await testSupabaseConnection();
+    if (!connectionTest.success) {
+      let errorMsg = "Connection failed: " + connectionTest.error;
+      if (connectionTest.code === "PGRST116") {
+        errorMsg = "Table 'secrets' not found. Please run the SQL schema in Supabase.";
+      } else if (connectionTest.type === "TypeError" || connectionTest.error.includes("fetch")) {
+        errorMsg = "Network error. Check your internet connection and Supabase configuration.";
+      } else if (connectionTest.code) {
+        errorMsg = `Database error (${connectionTest.code}): ${connectionTest.error}`;
+      }
+      throw new Error(errorMsg);
+    }
+
+    const { data, error } = await supabaseClient
       .from('secrets')
       .insert({
         content: content,
         client_id: identity.clientId
-      });
+      })
+      .select();
 
     if (error) {
-      throw new Error("Submission failed: " + error.message);
+      console.error("Supabase insert error:", error);
+      let errorMsg = error.message;
+      
+      // Provide helpful error messages
+      if (error.code === "PGRST116") {
+        errorMsg = "Table 'secrets' does not exist. Please run supabase-schema.sql in Supabase SQL Editor.";
+      } else if (error.code === "23503") {
+        errorMsg = "Foreign key violation. Make sure your profile exists in the 'profiles' table.";
+      } else if (error.code === "42501") {
+        errorMsg = "Permission denied. Check Row Level Security (RLS) policies in Supabase.";
+      } else if (error.message.includes("fetch")) {
+        errorMsg = "Network error. Check your internet connection and Supabase URL/API key.";
+      }
+      
+      throw new Error("Submission failed: " + errorMsg + (error.details ? " (" + error.details + ")" : ""));
     }
 
     input.value = "";
@@ -619,7 +678,15 @@ async function submitSecret() {
     updateBtnStates();
     toast("✅ Secret submitted!", "success");
   } catch (e) {
-    toast("Error submitting secret: " + e.message, "error");
+    console.error("Submit secret error:", e);
+    let errorMessage = e.message;
+    
+    // Handle network errors
+    if (e.message.includes("fetch") || e.name === "TypeError") {
+      errorMessage = "Network error. Please check:\n1. Your internet connection\n2. Supabase URL and API key in script.js\n3. CORS settings in Supabase\n4. That supabase-schema.sql has been run";
+    }
+    
+    toast("Error submitting secret: " + errorMessage, "error");
     lock(sendBtn, false);
   }
 }
@@ -704,12 +771,26 @@ function escapeHtml(text) {
 
 // ========== INITIALIZATION ==========
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   if (sendBtn) sendBtn.addEventListener("click", submitSecret);
   if (fetchBtn) fetchBtn.addEventListener("click", fetchSecret);
   if (inboxBtn) inboxBtn.addEventListener("click", showInboxModal);
   
   updateBtnStates();
+  
+  // Test Supabase connection on load
+  console.log("Testing Supabase connection...");
+  const connectionTest = await testSupabaseConnection();
+  if (!connectionTest.success) {
+    console.error("Supabase connection test failed:", connectionTest);
+    if (connectionTest.code === "PGRST116") {
+      toast("⚠️ Database tables not found. Please run supabase-schema.sql in Supabase SQL Editor.", "error");
+    } else if (connectionTest.error.includes("fetch")) {
+      toast("⚠️ Cannot connect to Supabase. Check your internet connection and configuration.", "error");
+    }
+  } else {
+    console.log("✅ Supabase connection successful");
+  }
   
   getOrInitializeIdentity().then(identity => {
     if (identity) {
