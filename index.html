@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>onescrt - anonymous secrets</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script defer src="script.js"></script>
+  <style>
+    body {
+      background: linear-gradient(to bottom right, #0f172a, #1e293b);
+    }
+  </style>
+</head>
+<body class="text-white min-h-screen flex flex-col items-center justify-start px-4 pt-16 font-sans">
+
+  <button id="inboxBtn" class="fixed top-4 right-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 z-10 flex items-center gap-2">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0018 4H2a2 2 0 00-1.997 1.884z" />
+      <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+    </svg>
+    <span>Inbox</span>
+  </button>
+  <div class="max-w-xl w-full text-center mb-8">
+    <img src="logo.png" alt="onescrt logo" class="mx-auto mb-4 w-12 h-12">
+    <h1 class="text-3xl font-bold mb-1">onescrt</h1>
+    <p class="text-sm text-gray-300">Where your secrets live... and breathe.</p>
+  </div>
+
+  <div class="bg-gray-900 p-6 rounded-xl w-full max-w-md shadow-xl mb-6">
+    <h2 class="text-lg font-semibold mb-3">Share a Secret</h2>
+    <textarea id="secretInput" rows="4" class="w-full p-3 rounded bg-gray-800 border border-gray-700 text-white placeholder-gray-400" placeholder="Type your secret... (min 30 characters)"></textarea>
+    <div class="flex justify-between mt-4">
+      <button id="sendBtn" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2 px-4 rounded transition duration-300">Submit Secret</button>
+      <button id="fetchBtn" disabled class="bg-gray-600 text-white font-semibold py-2 px-4 rounded opacity-50 cursor-not-allowed transition duration-300">Get a Random Secret</button>
+    </div>
+    <p id="sendMsg" class="text-green-400 text-sm mt-3 hidden">✅ Secret submitted. Now you can get one.</p>
+  </div>
+
+  <div class="bg-gray-900 p-5 rounded-xl w-full max-w-md shadow-md mb-8">
+    <h3 class="text-sm text-rose-300 font-semibold mb-2">📘 How It Works</h3>
+    <ul class="text-sm text-gray-300 list-decimal list-inside space-y-1 text-left">
+      <li>You must submit a real secret (min 30 chars).</li>
+      <li>After submission, you'll receive one from another user.</li>
+      <li>You can anonymously reply (E2E Encrypted) to the secret you receive.</li>
+      <li>You can check your Inbox for replies to your secret.</li>
+      <li>All interactions are anonymous. No accounts. No tracking.</li>
+    </ul>
+  </div>
+
+  <footer class="text-gray-500 text-xs text-center pb-6">
+    © 2025 onescrt.com
+  </footer>
+</body>
+</html>
+

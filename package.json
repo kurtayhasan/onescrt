@@ -1,0 +1,23 @@
+{
+  "name": "onescrt",
+  "version": "1.0.0",
+  "description": "Anonymous secrets sharing platform with end-to-end encryption",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx http-server -p 8000 -o",
+    "dev": "npx http-server -p 8000 -o"
+  },
+  "keywords": [
+    "anonymous",
+    "secrets",
+    "encryption",
+    "privacy",
+    "e2ee"
+  ],
+  "author": "kurtayhasan",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
+
