@@ -2,7 +2,42 @@
 const SUPABASE_URL = "https://rupebvabajtqnwpwytjf.supabase.co";
 const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1cGVidmFiYWp0cW53cHd5dGpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0NDU1MTAsImV4cCI6MjA2ODAyMTUxMH0.jcPhEvr83w1CJYmyen6k354U2riN3-76WcOmppFsbvg";
 
-const supabaseClient = supabase.createClient(SUPABASE_URL, API_KEY);
+// Initialize Supabase client with error handling
+let supabaseClient = null;
+
+function initSupabase() {
+  try {
+    if (typeof supabase === 'undefined') {
+      console.error("Supabase library not loaded!");
+      return null;
+    }
+    supabaseClient = supabase.createClient(SUPABASE_URL, API_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    });
+    console.log("✅ Supabase client initialized");
+    return supabaseClient;
+  } catch (error) {
+    console.error("❌ Error initializing Supabase client:", error);
+    return null;
+  }
+}
+
+// Initialize immediately if supabase is available, otherwise wait
+if (typeof supabase !== 'undefined') {
+  supabaseClient = initSupabase();
+} else {
+  // Wait for supabase to load
+  window.addEventListener('load', () => {
+    if (typeof supabase !== 'undefined') {
+      supabaseClient = initSupabase();
+    } else {
+      console.error("Supabase library failed to load. Check the script tag in index.html");
+    }
+  });
+}
 
 // ========== DOM ELEMENTS ==========
 const sendBtn = document.getElementById("sendBtn");
@@ -252,26 +287,38 @@ async function getOrInitializeIdentity() {
     localStorage.setItem("privateKey", JSON.stringify(privateKeyJwk));
     localStorage.setItem("publicKey", JSON.stringify(publicKeyJwk));
 
-    // Register profile in Supabase
+    // Register profile in Supabase (if client is available)
     try {
-      const { error } = await supabaseClient
-        .from('profiles')
-        .insert({
-          client_id: clientId,
-          public_key: JSON.stringify(publicKeyJwk)
-        });
-
-      if (error) {
-        // If profile already exists, that's okay
-        if (error.code !== '23505') { // Unique violation
-          throw new Error(`Supabase profile registration failed: ${error.message}`);
-        }
+      // Ensure Supabase client is initialized
+      if (!supabaseClient) {
+        supabaseClient = initSupabase();
       }
       
-      console.log("New anonymous profile saved to Supabase.");
+      if (supabaseClient) {
+        const { error } = await supabaseClient
+          .from('profiles')
+          .insert({
+            client_id: clientId,
+            public_key: JSON.stringify(publicKeyJwk)
+          });
+
+        if (error) {
+          // If profile already exists, that's okay
+          if (error.code !== '23505') { // Unique violation
+            console.warn("Profile registration warning:", error.message);
+            // Don't fail - profile will be created when needed
+          } else {
+            console.log("Profile already exists in Supabase.");
+          }
+        } else {
+          console.log("New anonymous profile saved to Supabase.");
+        }
+      } else {
+        console.warn("Supabase client not available, profile will be created later");
+      }
     } catch (e) {
-      console.error("Profile could not be saved to Supabase:", e);
-      // Don't clear localStorage on error - user might already have a profile
+      console.warn("Profile could not be saved to Supabase:", e);
+      // Don't fail - profile will be created when needed
     }
   }
   
@@ -576,30 +623,68 @@ async function showInboxModal() {
 
 // ========== SUPABASE CONNECTION TEST ==========
 async function testSupabaseConnection() {
+  // Check if Supabase client is initialized
+  if (!supabaseClient) {
+    console.error("Supabase client not initialized");
+    // Try to initialize
+    supabaseClient = initSupabase();
+    if (!supabaseClient) {
+      return {
+        success: false,
+        error: "Supabase client not initialized. Check if Supabase library is loaded.",
+        type: "InitializationError"
+      };
+    }
+  }
+
   try {
     // Test connection by trying to read from profiles table
-    const { data, error } = await supabaseClient
+    // Use a simple query that won't fail even if table is empty
+    const { data, error, status, statusText } = await supabaseClient
       .from('profiles')
       .select('client_id')
       .limit(1);
     
+    console.log("Connection test response:", { data, error, status, statusText });
+    
     if (error) {
       console.error("Supabase connection test failed:", error);
+      
+      // Provide specific error messages
+      let errorMsg = error.message;
+      if (error.code === "PGRST116") {
+        errorMsg = "Table 'profiles' does not exist. Please run supabase-schema.sql in Supabase SQL Editor.";
+      } else if (error.code === "PGRST301") {
+        errorMsg = "CORS error. Please configure CORS in Supabase Settings > API.";
+      } else if (error.message && error.message.includes("fetch")) {
+        errorMsg = "Network error. Check your internet connection and Supabase URL.";
+      }
+      
       return {
         success: false,
-        error: error.message,
+        error: errorMsg,
         code: error.code,
-        details: error.details || error.hint || ""
+        details: error.details || error.hint || "",
+        status: status,
+        statusText: statusText
       };
     }
     
-    return { success: true };
+    console.log("✅ Supabase connection test successful");
+    return { success: true, status: status };
   } catch (e) {
     console.error("Supabase connection test exception:", e);
+    let errorMsg = e.message;
+    
+    if (e.message && e.message.includes("fetch")) {
+      errorMsg = "Network error. Possible causes:\n1. No internet connection\n2. Wrong Supabase URL\n3. CORS not configured\n4. Supabase project paused";
+    }
+    
     return {
       success: false,
-      error: e.message,
-      type: e.name || "NetworkError"
+      error: errorMsg,
+      type: e.name || "NetworkError",
+      stack: e.stack
     };
   }
 }
@@ -632,18 +717,41 @@ async function submitSecret() {
   lock(sendBtn, true);
 
   try {
+    // Ensure Supabase client is initialized
+    if (!supabaseClient) {
+      supabaseClient = initSupabase();
+      if (!supabaseClient) {
+        throw new Error("Supabase client not initialized. Please refresh the page.");
+      }
+    }
+
     // First test connection
     const connectionTest = await testSupabaseConnection();
     if (!connectionTest.success) {
-      let errorMsg = "Connection failed: " + connectionTest.error;
-      if (connectionTest.code === "PGRST116") {
-        errorMsg = "Table 'secrets' not found. Please run the SQL schema in Supabase.";
-      } else if (connectionTest.type === "TypeError" || connectionTest.error.includes("fetch")) {
-        errorMsg = "Network error. Check your internet connection and Supabase configuration.";
-      } else if (connectionTest.code) {
-        errorMsg = `Database error (${connectionTest.code}): ${connectionTest.error}`;
+      throw new Error(connectionTest.error);
+    }
+
+    // Ensure profile exists before inserting secret
+    const { data: profileCheck, error: profileError } = await supabaseClient
+      .from('profiles')
+      .select('client_id')
+      .eq('client_id', identity.clientId)
+      .single();
+
+    // If profile doesn't exist, create it
+    if (profileError || !profileCheck) {
+      console.log("Profile not found, creating new profile...");
+      const { error: insertProfileError } = await supabaseClient
+        .from('profiles')
+        .insert({
+          client_id: identity.clientId,
+          public_key: JSON.stringify(identity.publicKeyJwk)
+        });
+
+      if (insertProfileError) {
+        console.error("Failed to create profile:", insertProfileError);
+        // Continue anyway - foreign key constraint might not be enforced
       }
-      throw new Error(errorMsg);
     }
 
     const { data, error } = await supabaseClient
@@ -771,7 +879,36 @@ function escapeHtml(text) {
 
 // ========== INITIALIZATION ==========
 
-window.addEventListener("DOMContentLoaded", async () => {
+// Wait for both DOM and Supabase library to be ready
+async function initializeApp() {
+  // Wait for Supabase library to load
+  if (typeof supabase === 'undefined') {
+    console.warn("Supabase library not loaded yet, waiting...");
+    // Wait up to 5 seconds for Supabase to load
+    for (let i = 0; i < 50; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (typeof supabase !== 'undefined') {
+        break;
+      }
+    }
+    
+    if (typeof supabase === 'undefined') {
+      console.error("Supabase library failed to load after 5 seconds!");
+      toast("❌ Supabase library failed to load. Please check your internet connection and refresh.", "error");
+      return;
+    }
+  }
+
+  // Initialize Supabase client
+  if (!supabaseClient) {
+    supabaseClient = initSupabase();
+    if (!supabaseClient) {
+      toast("❌ Failed to initialize Supabase client. Please refresh.", "error");
+      return;
+    }
+  }
+
+  // Set up event listeners
   if (sendBtn) sendBtn.addEventListener("click", submitSecret);
   if (fetchBtn) fetchBtn.addEventListener("click", fetchSecret);
   if (inboxBtn) inboxBtn.addEventListener("click", showInboxModal);
@@ -783,21 +920,40 @@ window.addEventListener("DOMContentLoaded", async () => {
   const connectionTest = await testSupabaseConnection();
   if (!connectionTest.success) {
     console.error("Supabase connection test failed:", connectionTest);
+    let errorMessage = connectionTest.error;
+    
     if (connectionTest.code === "PGRST116") {
-      toast("⚠️ Database tables not found. Please run supabase-schema.sql in Supabase SQL Editor.", "error");
-    } else if (connectionTest.error.includes("fetch")) {
-      toast("⚠️ Cannot connect to Supabase. Check your internet connection and configuration.", "error");
+      errorMessage = "⚠️ Database tables not found. Please run supabase-schema.sql in Supabase SQL Editor.";
+    } else if (connectionTest.type === "InitializationError") {
+      errorMessage = "⚠️ Supabase library not loaded. Check your internet connection.";
+    } else if (connectionTest.error && connectionTest.error.includes("fetch")) {
+      errorMessage = "⚠️ Cannot connect to Supabase. Check:\n1. Internet connection\n2. Supabase URL in script.js\n3. CORS settings in Supabase";
     }
+    
+    toast(errorMessage, "error");
   } else {
     console.log("✅ Supabase connection successful");
   }
   
-  getOrInitializeIdentity().then(identity => {
+  // Initialize identity
+  try {
+    const identity = await getOrInitializeIdentity();
     if (identity) {
-      console.log(`Anonymous identity ready: ${identity.clientId}`);
+      console.log(`✅ Anonymous identity ready: ${identity.clientId}`);
     } else {
       console.error("Could not create anonymous identity. Please refresh.");
       toast("Could not create secure identity. Please refresh.", "error");
     }
-  });
-});
+  } catch (error) {
+    console.error("Error initializing identity:", error);
+    toast("Error initializing identity: " + error.message, "error");
+  }
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+  // DOM is already ready
+  initializeApp();
+}

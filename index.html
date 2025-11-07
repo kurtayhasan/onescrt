@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>onescrt - anonymous secrets</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <!-- Load Supabase first, then script.js -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    // Verify Supabase loaded
+    window.addEventListener('load', function() {
+      if (typeof supabase === 'undefined') {
+        console.error('❌ Supabase library failed to load!');
+      } else {
+        console.log('✅ Supabase library loaded successfully');
+      }
+    });
+  </script>
   <script defer src="script.js"></script>
   <style>
     body {

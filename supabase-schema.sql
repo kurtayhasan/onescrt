@@ -30,8 +30,9 @@ CREATE TABLE IF NOT EXISTS secrets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     client_id UUID NOT NULL,
     content TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT fk_secrets_client FOREIGN KEY (client_id) REFERENCES profiles(client_id) ON DELETE CASCADE
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    -- Foreign key removed to allow secrets even if profile doesn't exist yet
+    -- CONSTRAINT fk_secrets_client FOREIGN KEY (client_id) REFERENCES profiles(client_id) ON DELETE CASCADE
 );
 
 -- Index for faster queries
@@ -48,7 +49,8 @@ CREATE TABLE IF NOT EXISTS secret_views (
     client_id UUID NOT NULL,
     viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     CONSTRAINT fk_secret_views_secret FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE,
-    CONSTRAINT fk_secret_views_client FOREIGN KEY (client_id) REFERENCES profiles(client_id) ON DELETE CASCADE,
+    -- Foreign key to profiles removed for flexibility
+    -- CONSTRAINT fk_secret_views_client FOREIGN KEY (client_id) REFERENCES profiles(client_id) ON DELETE CASCADE,
     UNIQUE(secret_id, client_id)
 );
 
@@ -68,9 +70,10 @@ CREATE TABLE IF NOT EXISTS replies (
     ciphertext TEXT NOT NULL,
     metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT fk_replies_secret FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE,
-    CONSTRAINT fk_replies_sender FOREIGN KEY (sender_client_id) REFERENCES profiles(client_id) ON DELETE CASCADE,
-    CONSTRAINT fk_replies_recipient FOREIGN KEY (recipient_client_id) REFERENCES profiles(client_id) ON DELETE CASCADE
+    CONSTRAINT fk_replies_secret FOREIGN KEY (secret_id) REFERENCES secrets(id) ON DELETE CASCADE
+    -- Foreign keys to profiles removed for flexibility - profiles will be created on demand
+    -- CONSTRAINT fk_replies_sender FOREIGN KEY (sender_client_id) REFERENCES profiles(client_id) ON DELETE CASCADE,
+    -- CONSTRAINT fk_replies_recipient FOREIGN KEY (recipient_client_id) REFERENCES profiles(client_id) ON DELETE CASCADE
 );
 
 -- Indexes for faster queries
