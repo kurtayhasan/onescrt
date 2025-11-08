@@ -1,6 +1,6 @@
 // ========== CONFIG ==========
-const SUPABASE_URL = "https://rupebvabajtqnwpwytjf.supabase.co";
-const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1cGVidmFiYWp0cW53cHd5dGpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0NDU1MTAsImV4cCI6MjA2ODAyMTUxMH0.jcPhEvr83w1CJYmyen6k354U2riN3-76WcOmppFsbvg";
+const SUPABASE_URL = "https://ukalifoxsciqbeyrupmu.supabase.co";
+const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrYWxpZm94c2NpcWJleXJ1cG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MzkxNjAsImV4cCI6MjA3ODIxNTE2MH0.7bqIlsYIiooYb-zC29FYscjePWpfRrQY_d_01w756Gk";
 
 // Initialize Supabase client with error handling
 let supabaseClient = null;
