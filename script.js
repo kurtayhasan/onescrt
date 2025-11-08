@@ -1166,31 +1166,30 @@ async function initializeApp() {
       errorMessage = "🚨 CORS ERROR - Domain Not Allowed!\n\n" +
         "Domain: " + (connectionTest.currentDomain || window.location.origin) + "\n" +
         "Supabase: " + SUPABASE_URL + "\n\n" +
-        "🔴 ACTION REQUIRED:\n\n" +
+        "✅ IMPORTANT: CORS is FREE on all plans!\n" +
+        "   (You're not adding custom domain, just CORS origins)\n\n" +
+        "🔴 FIX STEPS:\n\n" +
         "1. Go to Supabase Dashboard\n" +
         "   https://supabase.com/dashboard\n\n" +
         "2. Check Project Status\n" +
-        "   → Project must be ACTIVE (not paused)\n" +
+        "   → Must be ACTIVE (not paused)\n" +
         "   → If paused, click 'Resume'\n\n" +
-        "3. Find CORS Settings\n" +
-        "   → Settings > API > CORS\n" +
-        "   → Or: Project Settings > API > CORS\n" +
-        "   → If missing, project is paused!\n\n" +
+        "3. Find CORS Settings (FREE!)\n" +
+        "   → Settings > API (left sidebar)\n" +
+        "   → Scroll down to 'CORS' section\n" +
+        "   → This is FREE, not paid!\n\n" +
         "4. Add Domain to CORS\n" +
         "   → Add: " + window.location.origin + "\n" +
-        "   → Also add: https://onescrt.com\n" +
+        "   → Also: https://onescrt.com\n" +
         "   → Click 'Save'\n\n" +
-        "5. Verify API Key\n" +
-        "   → Settings > API > anon/public key\n" +
-        "   → Update script.js if different\n\n" +
-        "6. Wait & Refresh\n" +
+        "5. Wait & Test\n" +
         "   → Wait 30 seconds\n" +
         "   → Refresh this page\n\n" +
-        "📖 Full guide: SUPABASE-TROUBLESHOOTING.md\n\n" +
-        "❓ If CORS section doesn't exist:\n" +
-        "   → Project is PAUSED (most common)\n" +
-        "   → Resume project first\n" +
-        "   → Then CORS settings will appear";
+        "📖 See FREE-PLAN-CORS-FIX.md for details\n\n" +
+        "❓ Still can't find CORS?\n" +
+        "   → Project may be paused (resume it)\n" +
+        "   → Check Settings > API (scroll down)\n" +
+        "   → CORS is FREE on all plans!";
     }
     
     toast(errorMessage, "error");
