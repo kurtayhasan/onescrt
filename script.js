@@ -734,26 +734,38 @@ async function validateSupabaseCredentials() {
       return {
         valid: false,
         error: "CORS/Network error",
-        help: "❌ Cannot connect to Supabase!\n\n" +
+        help: "❌ CRITICAL: Cannot connect to Supabase!\n\n" +
               "Your domain: " + window.location.origin + "\n" +
               "Supabase URL: " + SUPABASE_URL + "\n\n" +
-              "This is DEFINITELY a CORS issue!\n\n" +
-              "CRITICAL STEPS:\n" +
-              "1. Go to https://supabase.com/dashboard\n" +
-              "2. Make sure your project is ACTIVE (not paused)\n" +
-              "3. Settings > API\n" +
-              "4. Look for 'CORS' or 'Allowed Origins' section\n" +
-              "5. Add this EXACT domain: " + window.location.origin + "\n" +
-              "6. Click 'Save' (wait for confirmation)\n" +
-              "7. Refresh this page\n\n" +
-              "If you don't see CORS section:\n" +
-              "- Project may be paused (resume it first)\n" +
-              "- Check Supabase documentation for latest UI\n" +
-              "  https://supabase.com/docs/guides/api\n\n" +
-              "Also verify:\n" +
-              "- API key is correct (anon/public key)\n" +
-              "- Supabase URL is correct\n" +
-              "- Project is not deleted or archived"
+              "🔴 THIS IS A CORS ISSUE - Domain not allowed!\n\n" +
+              "STEP-BY-STEP FIX:\n\n" +
+              "1. CHECK PROJECT STATUS:\n" +
+              "   → Go to https://supabase.com/dashboard\n" +
+              "   → Find project: rupebvabajtqnwpwytjf\n" +
+              "   → Make sure it's ACTIVE (not paused)\n" +
+              "   → If paused, click 'Resume' or 'Restore'\n\n" +
+              "2. FIND CORS SETTINGS:\n" +
+              "   → Settings > API (or Project Settings > API)\n" +
+              "   → Look for 'CORS' or 'Allowed Origins'\n" +
+              "   → If you don't see it, project may be paused\n\n" +
+              "3. ADD YOUR DOMAIN:\n" +
+              "   → Add EXACTLY: " + window.location.origin + "\n" +
+              "   → Also try: https://onescrt.com (without www)\n" +
+              "   → Click 'Save' and wait for confirmation\n\n" +
+              "4. VERIFY API KEY:\n" +
+              "   → Settings > API > Copy 'anon/public' key\n" +
+              "   → Make sure it matches script.js\n" +
+              "   → If different, update script.js\n\n" +
+              "5. WAIT & TEST:\n" +
+              "   → Wait 30 seconds after saving\n" +
+              "   → Refresh this page\n" +
+              "   → Check console (F12) for status\n\n" +
+              "⚠️ IF CORS SECTION DOESN'T EXIST:\n" +
+              "   → Project is likely PAUSED (resume it)\n" +
+              "   → Or project needs migration\n" +
+              "   → Contact Supabase support\n" +
+              "   → Or create a NEW project\n\n" +
+              "📖 See SUPABASE-TROUBLESHOOTING.md for details"
       };
     }
     
@@ -1151,20 +1163,34 @@ async function initializeApp() {
     } else if (connectionTest.type === "InitializationError") {
       errorMessage = "⚠️ Supabase library not loaded.\n\nCheck your internet connection and refresh the page.";
     } else if (connectionTest.error && (connectionTest.error.includes("fetch") || connectionTest.error.includes("CORS") || connectionTest.error.includes("Network"))) {
-      errorMessage = "🚨 CONNECTION ERROR!\n\n" +
-        "Your domain: " + (connectionTest.currentDomain || window.location.origin) + "\n\n" +
-        "Possible issues:\n" +
-        "1. CORS not configured\n" +
-        "2. API key invalid/expired\n" +
-        "3. Project paused\n\n" +
-        "Quick Fix:\n" +
-        "1. Go to https://supabase.com/dashboard\n" +
-        "2. Check if project is active (not paused)\n" +
-        "3. Settings > API\n" +
-        "4. Verify/update API key (anon/public)\n" +
-        "5. Add CORS: " + window.location.origin + "\n" +
-        "6. Save and refresh\n\n" +
-        "If CORS section doesn't exist, check project status!";
+      errorMessage = "🚨 CORS ERROR - Domain Not Allowed!\n\n" +
+        "Domain: " + (connectionTest.currentDomain || window.location.origin) + "\n" +
+        "Supabase: " + SUPABASE_URL + "\n\n" +
+        "🔴 ACTION REQUIRED:\n\n" +
+        "1. Go to Supabase Dashboard\n" +
+        "   https://supabase.com/dashboard\n\n" +
+        "2. Check Project Status\n" +
+        "   → Project must be ACTIVE (not paused)\n" +
+        "   → If paused, click 'Resume'\n\n" +
+        "3. Find CORS Settings\n" +
+        "   → Settings > API > CORS\n" +
+        "   → Or: Project Settings > API > CORS\n" +
+        "   → If missing, project is paused!\n\n" +
+        "4. Add Domain to CORS\n" +
+        "   → Add: " + window.location.origin + "\n" +
+        "   → Also add: https://onescrt.com\n" +
+        "   → Click 'Save'\n\n" +
+        "5. Verify API Key\n" +
+        "   → Settings > API > anon/public key\n" +
+        "   → Update script.js if different\n\n" +
+        "6. Wait & Refresh\n" +
+        "   → Wait 30 seconds\n" +
+        "   → Refresh this page\n\n" +
+        "📖 Full guide: SUPABASE-TROUBLESHOOTING.md\n\n" +
+        "❓ If CORS section doesn't exist:\n" +
+        "   → Project is PAUSED (most common)\n" +
+        "   → Resume project first\n" +
+        "   → Then CORS settings will appear";
     }
     
     toast(errorMessage, "error");
