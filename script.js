@@ -644,6 +644,127 @@ async function showInboxModal() {
 
 // ========== MAIN FUNCTIONS ==========
 
+// ========== SUPABASE API KEY VALIDATION ==========
+async function validateSupabaseCredentials() {
+  try {
+    // Test if Supabase URL is accessible and API key is valid
+    // Use the REST API endpoint to test
+    const baseUrl = SUPABASE_URL.endsWith('/') ? SUPABASE_URL.slice(0, -1) : SUPABASE_URL;
+    const testUrl = baseUrl + '/rest/v1/';
+    
+    console.log("Validating Supabase credentials...");
+    console.log("Testing URL:", testUrl);
+    console.log("API Key (first 20 chars):", API_KEY.substring(0, 20) + "...");
+    console.log("Current domain:", window.location.origin);
+    
+    // Try a direct fetch to check CORS and API key
+    let testResponse;
+    try {
+      testResponse = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+          'apikey': API_KEY,
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        }
+      });
+    } catch (fetchError) {
+      // This is likely a CORS error
+      console.error("Fetch error (likely CORS):", fetchError);
+      throw fetchError;
+    }
+    
+    console.log("Direct fetch test result:", {
+      status: testResponse.status,
+      statusText: testResponse.statusText,
+      ok: testResponse.ok,
+      type: testResponse.type
+    });
+    
+    // Check response status
+    if (testResponse.status === 401 || testResponse.status === 403) {
+      console.error("❌ API key is invalid or expired");
+      return {
+        valid: false,
+        error: "API key is invalid or expired",
+        status: testResponse.status,
+        help: "Your Supabase API key may have expired or been revoked.\n\n" +
+              "To get a new API key:\n" +
+              "1. Go to https://supabase.com/dashboard\n" +
+              "2. Select your project\n" +
+              "3. Settings > API\n" +
+              "4. Copy the 'anon/public' key (NOT service_role!)\n" +
+              "5. Update API_KEY in script.js\n" +
+              "6. Refresh this page"
+      };
+    }
+    
+    if (testResponse.status === 0 || (!testResponse.ok && testResponse.status !== 404 && testResponse.status !== 406)) {
+      // CORS error or network error (404/406 are acceptable for REST endpoint)
+      console.error("❌ CORS or network error");
+      return {
+        valid: false,
+        error: "CORS or network error",
+        status: testResponse.status,
+        help: "Cannot connect to Supabase API.\n\n" +
+              "Your domain: " + window.location.origin + "\n\n" +
+              "This is usually a CORS issue. To fix:\n" +
+              "1. Go to https://supabase.com/dashboard\n" +
+              "2. Select your project\n" +
+              "3. Settings > API\n" +
+              "4. Scroll down to 'CORS' section\n" +
+              "5. Add: " + window.location.origin + "\n" +
+              "6. Click 'Save'\n" +
+              "7. Wait a few seconds\n" +
+              "8. Refresh this page\n\n" +
+              "If CORS section doesn't exist:\n" +
+              "- Your project may be paused (check project status)\n" +
+              "- Supabase may have changed their UI (check latest docs)"
+      };
+    }
+    
+    // If we get here, the request succeeded (even if 404/406, it means CORS is working)
+    console.log("✅ Credentials appear valid (CORS is working)");
+    return { valid: true, status: testResponse.status };
+  } catch (e) {
+    console.error("Credential validation error:", e);
+    
+    if (e.message?.includes("fetch") || e.name === "TypeError" || e.message?.includes("NetworkError") || e.message?.includes("Failed to fetch")) {
+      return {
+        valid: false,
+        error: "CORS/Network error",
+        help: "❌ Cannot connect to Supabase!\n\n" +
+              "Your domain: " + window.location.origin + "\n" +
+              "Supabase URL: " + SUPABASE_URL + "\n\n" +
+              "This is DEFINITELY a CORS issue!\n\n" +
+              "CRITICAL STEPS:\n" +
+              "1. Go to https://supabase.com/dashboard\n" +
+              "2. Make sure your project is ACTIVE (not paused)\n" +
+              "3. Settings > API\n" +
+              "4. Look for 'CORS' or 'Allowed Origins' section\n" +
+              "5. Add this EXACT domain: " + window.location.origin + "\n" +
+              "6. Click 'Save' (wait for confirmation)\n" +
+              "7. Refresh this page\n\n" +
+              "If you don't see CORS section:\n" +
+              "- Project may be paused (resume it first)\n" +
+              "- Check Supabase documentation for latest UI\n" +
+              "  https://supabase.com/docs/guides/api\n\n" +
+              "Also verify:\n" +
+              "- API key is correct (anon/public key)\n" +
+              "- Supabase URL is correct\n" +
+              "- Project is not deleted or archived"
+      };
+    }
+    
+    return {
+      valid: false,
+      error: e.message || "Unknown error",
+      help: "Could not validate credentials. Check browser console (F12) for details."
+    };
+  }
+}
+
 // ========== SUPABASE CONNECTION TEST ==========
 async function testSupabaseConnection() {
   // Check if Supabase client is initialized
@@ -660,13 +781,28 @@ async function testSupabaseConnection() {
     }
   }
 
+  // First validate credentials
+  console.log("Step 1: Validating Supabase credentials...");
+  const credentialCheck = await validateSupabaseCredentials();
+  
+  if (!credentialCheck.valid) {
+    console.error("Credential validation failed:", credentialCheck);
+    return {
+      success: false,
+      error: credentialCheck.error || "Credential validation failed",
+      help: credentialCheck.help || "",
+      type: "CredentialError",
+      status: credentialCheck.status
+    };
+  }
+  
+  console.log("✅ Credentials validated");
+
   try {
-    // First, test with a simple REST API call to verify CORS
-    console.log("Testing Supabase connection...");
+    // Test connection by trying to read from profiles table
+    console.log("Step 2: Testing database connection...");
     console.log("URL:", SUPABASE_URL);
     
-    // Test connection by trying to read from profiles table
-    // Use a simple query that won't fail even if table is empty
     const { data, error, status, statusText } = await supabaseClient
       .from('profiles')
       .select('client_id')
@@ -698,13 +834,13 @@ async function testSupabaseConnection() {
       } else if (error.code === "PGRST301" || error.message?.includes("CORS")) {
         errorMsg = "CORS error detected.";
         detailedHelp = "Go to Supabase Dashboard > Settings > API > CORS and add your domain:\n" + window.location.origin;
-      } else if (error.message?.includes("fetch") || error.message?.includes("NetworkError") || error.message?.includes("Failed to fetch")) {
-        errorMsg = "Network/CORS error.";
-        detailedHelp = "Possible causes:\n1. CORS not configured in Supabase\n2. Wrong Supabase URL\n3. Network connection issue\n4. Supabase project paused\n\nYour current domain: " + window.location.origin + "\n\nAdd this to Supabase CORS settings!";
       } else if (error.code === "PGRST204" || status === 204) {
         // 204 is actually success (no content) - table exists but is empty
         console.log("✅ Connection successful (empty table)");
         return { success: true, status: status };
+      } else if (error.message?.includes("fetch") || error.message?.includes("NetworkError") || error.message?.includes("Failed to fetch")) {
+        errorMsg = "Network/CORS error.";
+        detailedHelp = "Possible causes:\n1. CORS not configured in Supabase\n2. Wrong Supabase URL\n3. Network connection issue\n4. Supabase project paused\n\nYour current domain: " + window.location.origin + "\n\nAdd this to Supabase CORS settings!";
       }
       
       return {
@@ -728,14 +864,19 @@ async function testSupabaseConnection() {
     
     if (e.message?.includes("fetch") || e.name === "TypeError" || e.message?.includes("NetworkError")) {
       errorMsg = "Network/CORS error.";
-      detailedHelp = "CRITICAL: CORS is not configured!\n\n" +
-        "To fix:\n" +
-        "1. Go to Supabase Dashboard\n" +
-        "2. Settings > API > CORS\n" +
-        "3. Add your domain: " + window.location.origin + "\n" +
-        "4. Save and refresh this page\n\n" +
-        "Current domain: " + window.location.origin + "\n" +
-        "Supabase URL: " + SUPABASE_URL;
+      detailedHelp = "CRITICAL: Cannot connect to Supabase!\n\n" +
+        "Possible causes:\n" +
+        "1. CORS not configured - Add " + window.location.origin + " to Supabase CORS settings\n" +
+        "2. API key expired - Get new key from Supabase Dashboard > Settings > API\n" +
+        "3. Project paused - Check project status in Supabase Dashboard\n" +
+        "4. Wrong Supabase URL - Verify URL in script.js\n\n" +
+        "To fix CORS:\n" +
+        "1. Go to https://supabase.com/dashboard\n" +
+        "2. Select your project\n" +
+        "3. Settings > API > CORS\n" +
+        "4. Add: " + window.location.origin + "\n" +
+        "5. Save and refresh\n\n" +
+        "If CORS section is missing, your project may be paused or API settings changed.";
     }
     
     return {
@@ -1003,19 +1144,27 @@ async function initializeApp() {
       errorMessage += "\n\n" + connectionTest.help;
     }
     
-    if (connectionTest.code === "PGRST116") {
+    if (connectionTest.type === "CredentialError") {
+      errorMessage = "🚨 API Key Issue!\n\n" + (connectionTest.help || "Your Supabase API key may be invalid or expired.");
+    } else if (connectionTest.code === "PGRST116") {
       errorMessage = "⚠️ Database tables not found.\n\n" + (connectionTest.help || "Please run supabase-schema.sql in Supabase SQL Editor.");
     } else if (connectionTest.type === "InitializationError") {
       errorMessage = "⚠️ Supabase library not loaded.\n\nCheck your internet connection and refresh the page.";
     } else if (connectionTest.error && (connectionTest.error.includes("fetch") || connectionTest.error.includes("CORS") || connectionTest.error.includes("Network"))) {
-      errorMessage = "🚨 CORS ERROR - Configuration Required!\n\n" +
+      errorMessage = "🚨 CONNECTION ERROR!\n\n" +
         "Your domain: " + (connectionTest.currentDomain || window.location.origin) + "\n\n" +
-        "To fix:\n" +
-        "1. Go to Supabase Dashboard\n" +
-        "2. Settings > API > CORS\n" +
-        "3. Add: " + window.location.origin + "\n" +
-        "4. Save and refresh this page\n\n" +
-        "See CORS-SETUP.md for detailed instructions.";
+        "Possible issues:\n" +
+        "1. CORS not configured\n" +
+        "2. API key invalid/expired\n" +
+        "3. Project paused\n\n" +
+        "Quick Fix:\n" +
+        "1. Go to https://supabase.com/dashboard\n" +
+        "2. Check if project is active (not paused)\n" +
+        "3. Settings > API\n" +
+        "4. Verify/update API key (anon/public)\n" +
+        "5. Add CORS: " + window.location.origin + "\n" +
+        "6. Save and refresh\n\n" +
+        "If CORS section doesn't exist, check project status!";
     }
     
     toast(errorMessage, "error");
