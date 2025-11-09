@@ -1,6 +1,6 @@
-// ========== CONFIG ==========
-const SUPABASE_URL = "https://rupebvabajtqnwpwytjf.supabase.co";
-const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ1cGVidmFiYWp0cW53cHd5dGpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI0NDU1MTAsImV4cCI6MjA2ODAyMTUxMH0.jcPhEvr83w1CJYmyen6k354U2riN3-76WcOmppFsbvg";
+// ========== CONFIG (GÜNCELLENDİ) ==========
+const SUPABASE_URL = "https://ukalifoxsciqbeyrupmu.supabase.co"; 
+const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrYWxpZm94c2NpcWJleXJ1cG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MzkxNjAsImV4cCI6MjA3ODIxNTE2MH0.7bqIlsYIiooYb-zC29FYscjePWpfRrQY_d_01w756Gk";
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, API_KEY);
 
@@ -99,23 +99,43 @@ async function decryptChatMessage(encryptedBase64, ivBase64, sharedSecret) {
   }
 }
 
-// ========== YENİ: LOCALSTORAGE (Veritabanı) YÖNETİMİ ==========
+// ========== YENİ: LOCALSTORAGE (Veritabanı) YÖNETİMİ (DÜZELTİLDİ) ==========
 function getLocalDatabase() {
-  let db = localStorage.getItem("onescrt_keys");
-  if (!db) {
-    db = {
+  let dbString = localStorage.getItem("onescrt_keys");
+  
+  if (dbString && dbString.startsWith('{')) {
+    return JSON.parse(dbString);
+  }
+
+  if (!dbString || dbString.startsWith('[') || !dbString.startsWith('{')) {
+    console.warn("Local storage key bozuk veya eksik. Yeni database oluşturuluyor.");
+    let db = {
       my_secrets: [],
       blocked_keys: [],
       viewer_id: `anon-${crypto.randomUUID()}`,
-      last_inbox_check: new Date(0).toISOString() // Çok eski bir tarih
+      last_inbox_check: new Date(0).toISOString()
     };
-    localStorage.setItem("onescrt_keys", JSON.stringify(db));
+    saveLocalDatabase(db);
+    return db;
   }
-  return JSON.parse(db);
+  
+  try {
+    return JSON.parse(dbString);
+  } catch (e) {
+    console.error("Kritik Hata: Local storage verisi okunamıyor. Yeni database oluşturuluyor.", e);
+    let db = {
+      my_secrets: [],
+      blocked_keys: [],
+      viewer_id: `anon-${crypto.randomUUID()}`,
+      last_inbox_check: new Date(0).toISOString()
+    };
+    saveLocalDatabase(db);
+    return db;
+  }
 }
 
 function saveLocalDatabase(db) {
-  localStorage.setItem("onescrt_keys", JSON.stringify(db));
+  localStorage.setItem("onescrt_keys", JSON.stringify(db)); 
 }
 
 function saveMySecretKeys(secret_id, nickname, replyKeyPair) {
@@ -383,7 +403,6 @@ function showSecretModal(secretObject, type = "public") {
       modal.querySelector("#replyTextarea").value = "";
       
     } catch(e) {
-      // DÜZELTİLMİŞ HATA MESAJI BURADA!
       toast("Error sending reply: " + e.message, "error"); 
     } finally {
       lock(replyBtn, false);
@@ -514,6 +533,7 @@ async function loadConversation(modal, convo) {
     for (const msg of convo.messages) {
       const decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
       const msgDiv = document.createElement("div");
+      // KRİTİK EKSİK: Kimin gönderdiğini kontrol edip renk vermeliyiz. (Aşama 2'ye kalsın)
       msgDiv.className = "p-2 bg-gray-900 rounded-lg"; 
       msgDiv.innerHTML = `
         <p class="text-xs text-cyan-400">${convo.sender_nickname} (${new Date(msg.created_at).toLocaleTimeString()})</p>
@@ -740,7 +760,7 @@ document.body.addEventListener("click", (e) => {
     const secret = {
       id: e.target.dataset.secretId,
       nickname: e.target.dataset.nickname,
-      content: decodeURIComponent(e.target.dataset.content), // DÜZELTME: decodeURIComponent kullanıldı
+      content: decodeURIComponent(e.target.dataset.content), 
       public_key_for_replies: e.target.dataset.publicKey
     };
     showSecretModal(secret, "public");
