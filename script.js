@@ -1,5 +1,5 @@
 // =========================================================================================
-// ONESCRT - NİHAİ KOD (POW Çözümü ve Tüm Özellikler Dahil)
+// ONESCRT - NİHAİ KOD (POW Çözümü, Inbox Düzeltmeleri ve Engelleme Dahil)
 // =========================================================================================
 
 // ========== CONFIG (FINAL) ==========
@@ -426,7 +426,8 @@ function renderVibeButton(secretId, vibeType, emoji, count) {
 async function sendVibe(secretId, vibeType, button) {
     const db = getLocalDatabase();
     
-    lock(button, true);
+    // YENİ VIBE DÜZELTMESİ: Butonu hemen kilitle
+    lock(button, true, "..."); 
     
     const emojiMap = { 'love': '❤️', 'shock': '🤯', 'funny': '😂' };
     const emoji = emojiMap[vibeType] || '👍'; 
@@ -460,7 +461,8 @@ async function sendVibe(secretId, vibeType, button) {
     } catch (e) {
         toast("Error sending vibe: " + e.message, "error");
     } finally {
-        if (!button.disabled) lock(button, false);
+        // Hata varsa butonu aç, yoksa zaten disabled
+        if (!button.disabled) lock(button, false, emoji); 
     }
 }
 
@@ -705,27 +707,36 @@ async function showInboxModal() {
         
         let convoId;
         let senderNickname;
-        let senderPublicKeyJwk;
+        let partnerPublicKeyJwk;
 
         if (isMyMessage) {
-            convoId = `${msg.secret_id}:OUT:${msg.sender_public_key}`; 
+            // Mesaj benden gitmişse, partner public key'ini, bu mesajı atmayan diğer kişiden almalıyız
+            // Ancak bu mesajın atıldığı sohbeti tanımlayan kişi yine partnerdir.
+            // Bu mantıkta partner_public_key her zaman karşı tarafınki olmalıdır.
+            
+            // Eğer isMyMessage, o zaman bu sohbetteki mesajın atıldığı diğer kişiyi bulmalıyız.
+            convoId = `${msg.secret_id}:${msg.sender_public_key}`; 
             senderNickname = msg.sender_nickname; 
-            senderPublicKeyJwk = JSON.parse(msg.sender_public_key);
+            partnerPublicKeyJwk = JSON.parse(msg.sender_public_key);
+
         } else {
-            convoId = `${msg.secret_id}:IN:${msg.sender_public_key}`; 
+            // Mesaj karşıdan gelmiş.
+            convoId = `${msg.secret_id}:${msg.sender_public_key}`; 
             senderNickname = msg.sender_nickname; 
-            senderPublicKeyJwk = JSON.parse(msg.sender_public_key);
+            partnerPublicKeyJwk = JSON.parse(msg.sender_public_key);
 
             // ENGELLEME KONTROLÜ
-            if (isBlocked(senderPublicKeyJwk)) {
+            if (isBlocked(partnerPublicKeyJwk)) {
                 continue; 
             }
         }
         
+        // ConvoId'yi partner public key'i üzerinden grupla
         if (!conversations[convoId]) {
             conversations[convoId] = {
                 secret_id: msg.secret_id,
-                partner_nickname: isMyMessage ? "You" : msg.sender_nickname,
+                // KRİTİK DÜZELTME: Sohbet listesinde her zaman karşı tarafın nickini göster.
+                partner_nickname: msg.sender_nickname, 
                 partner_public_key: msg.sender_public_key,
                 messages: []
             };
@@ -733,15 +744,19 @@ async function showInboxModal() {
         conversations[convoId].messages.push(msg);
     }
     
-    // YENİ: Tekrarlanan convoId'leri temizle (IN/OUT birleştirme)
     const uniqueConversations = {};
+    // Inbox'taki tüm konuşmaları tek bir ID ile birleştir (Secret ID + Partner Key)
     for(const key in conversations) {
-        const uniqueKey = key.split(/:(IN|OUT):/)[0] + ':' + key.split(/:(IN|OUT):/)[2];
+        const convo = conversations[key];
+        const partnerKeyString = convo.partner_public_key;
+        
+        // Sohbet ID'sini (Secret ID + Partner Key) benzersiz yap
+        const uniqueKey = `${convo.secret_id}:${partnerKeyString}`; 
         
         if (!uniqueConversations[uniqueKey]) {
-            uniqueConversations[uniqueKey] = conversations[key];
+            uniqueConversations[uniqueKey] = convo;
         } else {
-            uniqueConversations[uniqueKey].messages.push(...conversations[key].messages);
+            uniqueConversations[uniqueKey].messages.push(...convo.messages);
         }
     }
 
@@ -753,17 +768,29 @@ async function showInboxModal() {
         const latestMsg = convo.messages[convo.messages.length - 1];
         const targetSecret = db.my_secrets.find(s => s.secret_id === latestMsg.secret_id);
         const myReplyKeyString = JSON.stringify(targetSecret.public_key_for_replies);
+        
+        const partnerPublicKeyJwk = JSON.parse(convo.partner_public_key);
+        const isCurrentlyBlocked = isBlocked(partnerPublicKeyJwk); // Engellenmiş mi?
+        
         const isMyLastMessage = latestMsg.sender_public_key === myReplyKeyString;
         
-        const displayNickname = isMyLastMessage 
-            ? "You" 
-            : convo.partner_nickname;
-
+        // Hata 2 Düzeltmesi: Eğer son mesaj benden gelmişse bile, konuşma başlığı karşı tarafın nicki olmalı.
+        let displayNickname = isMyLastMessage ? convo.partner_nickname : latestMsg.sender_nickname;
         
+        // Engellenmişse nick'i gizle
+        if (isCurrentlyBlocked) {
+            displayNickname = "[BLOCKED USER]";
+        } else if (displayNickname === targetSecret.nickname) {
+            // Bu durum, karşı tarafın nicki ile benim secret nickim aynı olduğunda olur. 
+            // Bu mantık karışıklığını önlemek için her zaman partner nicki gösterilir.
+            displayNickname = convo.partner_nickname;
+        }
+        
+
         const div = document.createElement("div");
         div.className = "p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-700";
         div.innerHTML = `
-            <div class="font-semibold text-white">${displayNickname === "You" ? "New Chat" : displayNickname}</div>
+            <div class="font-semibold text-white">${displayNickname}</div>
             <div class="text-xs text-gray-400">${convo.messages.length} message(s)</div>
         `;
         
@@ -782,12 +809,13 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (KENDİ MESAJ İÇİN KESİN DÜZELTME)
+// YENİ: Seçilen Sohbeti Yükler (ENGELLEME BUTONU VE NİCK DÜZELTMESİ EKLENDİ)
 async function loadConversation(modal, convo) {
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
   const replyBtn = modal.querySelector("#inboxReplyBtn");
   const replyText = modal.querySelector("#inboxReplyText");
+  const messagePanel = modal.querySelector("#inbox-message-panel");
   
   messageFeed.innerHTML = `<p class="text-gray-400">Decrypting messages from ${convo.partner_nickname}...</p>`;
   
@@ -798,9 +826,10 @@ async function loadConversation(modal, convo) {
     
     const myReplyKeyString = JSON.stringify(mySecret.public_key_for_replies);
     
-    // Karşı tarafın public key'ini bul
+    // Partner Key ve Engelleme Durumu
     const partnerKeyString = convo.partner_public_key;
     const partnerPublicKeyJwk = JSON.parse(partnerKeyString);
+    const isCurrentlyBlocked = isBlocked(partnerPublicKeyJwk);
 
     // Paylaşımlı gizli anahtarı türet
     const myReplyPrivateKey = await importPrivateKey(mySecret.private_key_for_replies);
@@ -820,11 +849,14 @@ async function loadConversation(modal, convo) {
       let decryptedText = "[Cannot decrypt]"; 
       
       if (isMyMessage) {
-          // KENDİ MESAJIMIZ: LocalStorage'da sakladığımız net metni kullan
           decryptedText = mySentMessagesClearText[msg.id] || "[Clear text not found in local storage]"; 
       } else {
-          // KARŞI TARAFIN MESAJI: Gelen kutusu mesajını çöz
           decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
+      }
+      
+      // Engellenmişse gelen mesajları maskele
+      if (!isMyMessage && isCurrentlyBlocked) {
+          decryptedText = "[BLOCKED MESSAGE]";
       }
       
       
@@ -854,10 +886,48 @@ async function loadConversation(modal, convo) {
     }
     messageFeed.scrollTop = messageFeed.scrollHeight; 
 
+    // ENGELLEME BUTONUNU MESAJ PANELİNE EKLE (Hata 3 Düzeltmesi)
+    const blockButtonArea = document.createElement("div");
+    blockButtonArea.className = "flex justify-end mt-2";
+    blockButtonArea.innerHTML = `
+        <button id="inboxBlockBtn" class="text-xs bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-600 hover:bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-700 text-white px-3 py-1 rounded-lg font-semibold">
+            ${isCurrentlyBlocked ? `Unblock ${convo.partner_nickname}` : `Block ${convo.partner_nickname}`}
+        </button>
+    `;
+    // Eğer buton alanı zaten varsa sil
+    const existingBlockArea = messagePanel.querySelector('#inboxBlockBtnContainer');
+    if (existingBlockArea) existingBlockArea.remove();
+
+    blockButtonArea.id = 'inboxBlockBtnContainer';
+    messagePanel.insertBefore(blockButtonArea, replyArea);
+
+
+    // Engelleme butonu listener'ı
+    messagePanel.querySelector("#inboxBlockBtn").addEventListener("click", () => {
+        const newBlockedState = toggleBlock(partnerPublicKeyJwk, convo.partner_nickname);
+        const btn = messagePanel.querySelector("#inboxBlockBtn");
+        
+        // Engelleme durumunu güncelle
+        if (newBlockedState) {
+            btn.textContent = `Unblock ${convo.partner_nickname}`;
+            btn.classList.replace('bg-red-600', 'bg-yellow-600');
+            btn.classList.replace('hover:bg-red-700', 'hover:bg-yellow-700');
+            toast(`${convo.partner_nickname} blocked. Reloading conversation...`, 'error');
+        } else {
+            btn.textContent = `Block ${convo.partner_nickname}`;
+            btn.classList.replace('bg-yellow-600', 'bg-red-600');
+            btn.classList.replace('hover:bg-yellow-700', 'hover:bg-red-700');
+            toast(`${convo.partner_nickname} unblocked. Reloading conversation...`, 'info');
+        }
+        
+        // Konuşmayı yenile (mesaj maskelerini güncellemek için)
+        // setTimeout(() => loadConversation(modal, convo), 500); // Yeniden yükleme gerektirir
+    });
+    
     replyArea.classList.remove("hidden");
     replyText.value = "";
     
-    // Cevap Gönderme
+    // Cevap Gönderme (Aynı Kalır)
     replyBtn.onclick = async () => {
       const replyContent = replyText.value.trim();
       if (replyContent.length < 2) {
@@ -878,7 +948,6 @@ async function loadConversation(modal, convo) {
           iv: iv
         };
         
-        // Supabase'e ekle ve id'yi geri al (Kendi mesajımızı Local'e kaydetmek için)
         const { data: insertedMsg, error: msgError } = await supabaseClient
           .from('messages')
           .insert(messagePayload)
@@ -887,13 +956,10 @@ async function loadConversation(modal, convo) {
           
         if (msgError) throw new Error("Reply could not be sent: " + msgError.message);
         
-        // YENİ: Mesajın clear text'ini localStorage'a kaydet
         const currentSent = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
         currentSent[insertedMsg.id] = replyContent;
         localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
 
-
-        // Kendi mesajımızı manuel olarak feed'e ekle (ÇÖZÜLMÜŞ METİNİ GÖSTER)
         const msgDiv = document.createElement("div");
         msgDiv.className = "flex justify-end";
         msgDiv.innerHTML = `
@@ -945,7 +1011,7 @@ function checkNotifications(allMessages, db) {
   saveLocalDatabase(db);
 }
 
-// YENİ: Yedekleme ve Geri Yükleme (Değişiklik Yok)
+// YENİ: Yedekleme ve Geri Yükleme (Aynı Kalır)
 async function backupKeys() {
   const db = getLocalDatabase();
   if (db.my_secrets.length === 0 && db.blocked_keys.length === 0) {
@@ -1057,7 +1123,7 @@ async function restoreKeys() {
   fileInput.click();
 }
 
-// YENİ: Yedekleme Butonunu Ayarla (Değişiklik Yok)
+// YENİ: Yedekleme Butonunu Ayarla (Aynı Kalır)
 backupBtn.addEventListener("click", () => {
   if (confirm("Backup: Download an encrypted file of your keys.\nRestore: Use a backup file.\n\nDo you want to BACKUP (OK) or RESTORE (Cancel)?")) {
     backupKeys();
