@@ -756,7 +756,7 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (KENDİ MESAJ İÇİN GÜVENLİ GERİ DÖNÜŞ EKLENDİ)
+// YENİ: Seçilen Sohbeti Yükler (KENDİ MESAJININ NET METNİNİ GÖSTEREN KESİN DÜZELTME)
 async function loadConversation(modal, convo) {
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
@@ -767,12 +767,14 @@ async function loadConversation(modal, convo) {
   
   try {
     const db = getLocalDatabase();
+    // Kendi sırrımızın detaylarını bul (nickname ve private key)
     const mySecret = db.my_secrets.find(s => s.secret_id === convo.secret_id);
     if (!mySecret) throw new Error("Local private key for this secret not found!");
     
+    // Kendi public key'imizin string hali
     const myReplyKeyString = JSON.stringify(mySecret.public_key_for_replies);
     
-    // Karşı tarafın public key'ini bul
+    // Karşı tarafın public key'ini al
     const partnerKeyString = convo.partner_public_key;
     const partnerPublicKeyJwk = JSON.parse(partnerKeyString);
 
@@ -784,18 +786,21 @@ async function loadConversation(modal, convo) {
     messageFeed.innerHTML = ""; 
     convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
+    // Kendi gönderdiğimiz mesajların clear-text halini (gönderildiği an bellekte tutulan) almak için bir harita
+    const mySentMessagesClearText = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
+
     for (const msg of convo.messages) {
       
       const isMyMessage = msg.sender_public_key === myReplyKeyString;
       
       let decryptedText = "[Cannot decrypt]"; 
       
-      // KRİTİK DÜZELTME: Kendi gönderdiğimiz mesajı çözmeye çalışmayı bırak, 
-      // çünkü bu E2EE'de hatalara neden oluyor. Sadece Gelen kutusunu çöz.
       if (isMyMessage) {
-          decryptedText = "[Message Sent]"; 
+          // Kendi mesajımız: Eğer localStorage'da çözülmüş hali varsa onu kullan, yoksa hata göster.
+          // CRITICAL: Bu, eski hatalı mesajları çözmek için bir geri dönüş. Yeni mesajlar anlık ekleniyor.
+          decryptedText = mySentMessagesClearText[msg.id] || "[Message Sent (Clear text not stored)]";
       } else {
-          // Gelen kutusu mesajını çöz
+          // Karşı tarafın mesajı: Şifreyi çöz
           decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
       }
       
@@ -850,11 +855,19 @@ async function loadConversation(modal, convo) {
           iv: iv
         };
         
-        const { error: msgError } = await supabaseClient
+        // Supabase'e ekle ve id'yi geri al
+        const { data: insertedMsg, error: msgError } = await supabaseClient
           .from('messages')
-          .insert(messagePayload);
+          .insert(messagePayload)
+          .select('id')
+          .single();
           
         if (msgError) throw new Error("Reply could not be sent: " + msgError.message);
+        
+        // Yeni mesajın clear text'ini localStorage'a kaydet (sadece bizden gidenler)
+        const currentSent = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
+        currentSent[insertedMsg.id] = replyContent;
+        localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
         
         // Kendi mesajımızı manuel olarak feed'e ekle (ÇÖZÜLMÜŞ METİNİ GÖSTER)
         const msgDiv = document.createElement("div");
@@ -880,8 +893,7 @@ async function loadConversation(modal, convo) {
   } catch(e) {
     messageFeed.innerHTML = `<p class="text-red-400">Error decrypting conversation: ${e.message}</p>`;
   }
-}
-// YENİ: Bildirimleri Kontrol Et (Değişiklik Yok)
+}// YENİ: Bildirimleri Kontrol Et (Değişiklik Yok)
 function checkNotifications(allMessages, db) {
   const lastCheck = new Date(db.last_inbox_check);
   let hasNewMessage = false;
