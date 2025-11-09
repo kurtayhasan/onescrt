@@ -1,4 +1,8 @@
-// ========== CONFIG (GÜNCELLENDİ) ==========
+// =========================================================================================
+// ONESCRT - NIHAI KOD (Tüm Hata Düzeltmeleri ve Özellikler Dahil)
+// =========================================================================================
+
+// ========== CONFIG (FINAL) ==========
 const SUPABASE_URL = "https://ukalifoxsciqbeyrupmu.supabase.co"; 
 const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrYWxpZm94c2NpcWJleXJ1cG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MzkxNjAsImV4cCI6MjA3ODIxNTE2MH0.7bqIlsYIiooYb-zC29FYscjePWpfRrQY_d_01w756Gk";
 
@@ -190,8 +194,6 @@ async function solveProofOfWork(payload) {
     let nonce = 0;
     let hash = '';
     
-    // toast("Solving Proof-of-Work...");
-    
     while (!hash.startsWith(TARGET_PREFIX)) {
         nonce++;
         const attempt = dataString + nonce;
@@ -247,7 +249,6 @@ async function submitSecret() {
   }
   
   lock(sendBtn, true, "Calculating Proof-of-Work (Spam Guard)...");
-  lock(fetchBtn, true); 
   
   try {
     const nickname = generateNickname();
@@ -259,7 +260,6 @@ async function submitSecret() {
       public_key_for_replies: JSON.stringify(replyKeyPair.publicKeyJwk),
       content: content,
       // YENİ: KENDİ KENDİNİ İMHA SÜRESİ
-      // Public ise 7 gün sonra silinsin (Örnek süre)
       expires_at: isPublic ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : null
     };
     
@@ -283,7 +283,6 @@ async function submitSecret() {
     
     secretInput.value = "";
     sendMsg.classList.remove("hidden");
-    localStorage.setItem("hasSentSecret", "true"); 
     updateBtnStates();
     
     let confirmationMsg = "✅ Secret submitted! Your keys are saved locally.";
@@ -445,9 +444,9 @@ async function sendVibe(secretId, vibeType, button) {
 }
 
 
-// YENİ: "Get a Private Secret" (Değişiklik Yok)
+// YENİ: "Get a Private Secret" (sessionStorage'a geçildi)
 async function fetchPrivateSecret() {
-  lock(fetchBtn, true);
+  lock(fetchBtn, true, "Fetching...");
   const db = getLocalDatabase();
   
   try {
@@ -484,17 +483,18 @@ async function fetchPrivateSecret() {
 
       showSecretModal(randomSecret, "private");
       
-      localStorage.setItem("hasFetchedSecret", "true");
+      // KRİTİK DEĞİŞİM: Sadece bu oturum için kilit koy
+      sessionStorage.setItem("hasFetchedSecret", "true"); 
       updateBtnStates();
       
     } else {
       toast("No new private secrets found to fetch.", "error");
-      lock(fetchBtn, false); 
+      lock(fetchBtn, false, "Get a Private Secret"); 
     }
     
   } catch (e) {
     toast("Error fetching private secret: " + e.message, "error");
-    lock(fetchBtn, false);
+    lock(fetchBtn, false, "Get a Private Secret");
   }
 }
 
@@ -589,11 +589,18 @@ function showSecretModal(secretObject, type = "public") {
         iv: iv
       };
       
-      const { error: msgError } = await supabaseClient
+      const { data: insertedMsg, error: msgError } = await supabaseClient
         .from('messages')
-        .insert(messagePayload);
+        .insert(messagePayload)
+        .select('id')
+        .single();
         
       if (msgError) throw new Error("Message could not be sent: " + msgError.message);
+
+      // CRITICAL FIX: Kendi mesajımızın net metnini localStorage'a kaydet (Inbox hatası fix'i)
+      const currentSent = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
+      currentSent[insertedMsg.id] = replyContent;
+      localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
       
       toast("Encrypted reply sent!", "success");
       modal.querySelector("#replyTextarea").value = "";
@@ -606,7 +613,7 @@ function showSecretModal(secretObject, type = "public") {
   });
 }
 
-// YENİ: "Inbox" (ENGELLEME VE KENDİ/KARŞI TARAF MESAJ AYRIMI EKLENDİ)
+// YENİ: "Inbox" (ENGELLEME VE KENDİ/KARŞI TARAF MESAJ AYRIMI İLE ÇÖZÜM)
 async function showInboxModal() {
   const db = getLocalDatabase();
   
@@ -667,17 +674,11 @@ async function showInboxModal() {
     
     const conversations = {};
     for (const msg of messages) {
-        // Anonimliği korumak için, sohbeti başlatanın public key'i üzerinden grupluyoruz.
-        // Mesaj, *ya* sır sahibinden *ya da* cevaplayandan gelmiştir. 
-        // Hangisi olduğunu belirlemek için 'msg.sender_public_key'i kullanıyoruz.
         
-        // Bu mesajın hangi bizim sırrımıza atıldığını bul
         const targetSecret = db.my_secrets.find(s => s.secret_id === msg.secret_id);
-        if (!targetSecret) continue; // Alakasız mesaj
+        if (!targetSecret) continue; 
         
         const myReplyKeyString = JSON.stringify(targetSecret.public_key_for_replies);
-
-        // Bu mesaj benden mi (sır sahibinden) gitti, yoksa karşı taraftan mı geldi?
         const isMyMessage = msg.sender_public_key === myReplyKeyString;
         
         let convoId;
@@ -685,17 +686,15 @@ async function showInboxModal() {
         let senderPublicKeyJwk;
 
         if (isMyMessage) {
-            // Mesaj benden gitmiş. Sohbeti karşı tarafın public key'i ile etiketle
             convoId = `${msg.secret_id}:OUT:${msg.sender_public_key}`; 
-            senderNickname = msg.sender_nickname; // Benim nickim
+            senderNickname = msg.sender_nickname; 
             senderPublicKeyJwk = JSON.parse(msg.sender_public_key);
         } else {
-            // Mesaj karşıdan gelmiş. Sohbeti karşı tarafın public key'i ile etiketle
             convoId = `${msg.secret_id}:IN:${msg.sender_public_key}`; 
-            senderNickname = msg.sender_nickname; // Karşı tarafın nicki
+            senderNickname = msg.sender_nickname; 
             senderPublicKeyJwk = JSON.parse(msg.sender_public_key);
 
-            // ENGELLEME KONTROLÜ: Eğer mesaj gönderen engellenmişse, bu sohbeti oluşturma.
+            // ENGELLEME KONTROLÜ
             if (isBlocked(senderPublicKeyJwk)) {
                 continue; 
             }
@@ -712,16 +711,14 @@ async function showInboxModal() {
         conversations[convoId].messages.push(msg);
     }
     
-    // YENİ: Tekrarlanan convoId'leri temizle (Çünkü IN ve OUT aynı convoID'yi kullanır)
+    // YENİ: Tekrarlanan convoId'leri temizle (IN/OUT birleştirme)
     const uniqueConversations = {};
     for(const key in conversations) {
-        // IN: veya OUT: prefix'ini at. Sadece secret_id:public_key kalsın
         const uniqueKey = key.split(/:(IN|OUT):/)[0] + ':' + key.split(/:(IN|OUT):/)[2];
         
         if (!uniqueConversations[uniqueKey]) {
             uniqueConversations[uniqueKey] = conversations[key];
         } else {
-            // Mesajları birleştir
             uniqueConversations[uniqueKey].messages.push(...conversations[key].messages);
         }
     }
@@ -729,15 +726,22 @@ async function showInboxModal() {
 
     for (const convoKey in uniqueConversations) {
         const convo = uniqueConversations[convoKey];
-        // Mesajları tarihe göre sırala
         convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         
         const latestMsg = convo.messages[convo.messages.length - 1];
+        const targetSecret = db.my_secrets.find(s => s.secret_id === latestMsg.secret_id);
+        const myReplyKeyString = JSON.stringify(targetSecret.public_key_for_replies);
+        const isMyLastMessage = latestMsg.sender_public_key === myReplyKeyString;
+        
+        const displayNickname = isMyLastMessage 
+            ? "You" 
+            : convo.partner_nickname;
+
         
         const div = document.createElement("div");
         div.className = "p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-700";
         div.innerHTML = `
-            <div class="font-semibold text-white">${convo.partner_nickname === "You" ? "New Chat" : convo.partner_nickname}</div>
+            <div class="font-semibold text-white">${displayNickname === "You" ? "New Chat" : displayNickname}</div>
             <div class="text-xs text-gray-400">${convo.messages.length} message(s)</div>
         `;
         
@@ -756,7 +760,7 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (KENDİ MESAJININ NET METNİNİ GÖSTEREN KESİN DÜZELTME)
+// YENİ: Seçilen Sohbeti Yükler (KENDİ MESAJ İÇİN KESİN DÜZELTME)
 async function loadConversation(modal, convo) {
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
@@ -767,14 +771,12 @@ async function loadConversation(modal, convo) {
   
   try {
     const db = getLocalDatabase();
-    // Kendi sırrımızın detaylarını bul (nickname ve private key)
     const mySecret = db.my_secrets.find(s => s.secret_id === convo.secret_id);
     if (!mySecret) throw new Error("Local private key for this secret not found!");
     
-    // Kendi public key'imizin string hali
     const myReplyKeyString = JSON.stringify(mySecret.public_key_for_replies);
     
-    // Karşı tarafın public key'ini al
+    // Karşı tarafın public key'ini bul
     const partnerKeyString = convo.partner_public_key;
     const partnerPublicKeyJwk = JSON.parse(partnerKeyString);
 
@@ -786,7 +788,7 @@ async function loadConversation(modal, convo) {
     messageFeed.innerHTML = ""; 
     convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-    // Kendi gönderdiğimiz mesajların clear-text halini (gönderildiği an bellekte tutulan) almak için bir harita
+    // Kendi gönderdiğimiz mesajların clear-text halini local'den çek
     const mySentMessagesClearText = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
 
     for (const msg of convo.messages) {
@@ -796,11 +798,10 @@ async function loadConversation(modal, convo) {
       let decryptedText = "[Cannot decrypt]"; 
       
       if (isMyMessage) {
-          // Kendi mesajımız: Eğer localStorage'da çözülmüş hali varsa onu kullan, yoksa hata göster.
-          // CRITICAL: Bu, eski hatalı mesajları çözmek için bir geri dönüş. Yeni mesajlar anlık ekleniyor.
-          decryptedText = mySentMessagesClearText[msg.id] || "[Message Sent (Clear text not stored)]";
+          // KENDİ MESAJIMIZ: LocalStorage'da sakladığımız net metni kullan
+          decryptedText = mySentMessagesClearText[msg.id] || "[Clear text not found in local storage]"; 
       } else {
-          // Karşı tarafın mesajı: Şifreyi çöz
+          // KARŞI TARAFIN MESAJI: Gelen kutusu mesajını çöz
           decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
       }
       
@@ -855,7 +856,7 @@ async function loadConversation(modal, convo) {
           iv: iv
         };
         
-        // Supabase'e ekle ve id'yi geri al
+        // Supabase'e ekle ve id'yi geri al (Kendi mesajımızı Local'e kaydetmek için)
         const { data: insertedMsg, error: msgError } = await supabaseClient
           .from('messages')
           .insert(messagePayload)
@@ -864,11 +865,12 @@ async function loadConversation(modal, convo) {
           
         if (msgError) throw new Error("Reply could not be sent: " + msgError.message);
         
-        // Yeni mesajın clear text'ini localStorage'a kaydet (sadece bizden gidenler)
+        // YENİ: Mesajın clear text'ini localStorage'a kaydet
         const currentSent = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
         currentSent[insertedMsg.id] = replyContent;
         localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
-        
+
+
         // Kendi mesajımızı manuel olarak feed'e ekle (ÇÖZÜLMÜŞ METİNİ GÖSTER)
         const msgDiv = document.createElement("div");
         msgDiv.className = "flex justify-end";
@@ -893,7 +895,9 @@ async function loadConversation(modal, convo) {
   } catch(e) {
     messageFeed.innerHTML = `<p class="text-red-400">Error decrypting conversation: ${e.message}</p>`;
   }
-}// YENİ: Bildirimleri Kontrol Et (Değişiklik Yok)
+}
+
+// YENİ: Bildirimleri Kontrol Et (Değişiklik Yok)
 function checkNotifications(allMessages, db) {
   const lastCheck = new Date(db.last_inbox_check);
   let hasNewMessage = false;
@@ -1041,18 +1045,20 @@ backupBtn.addEventListener("click", () => {
 });
 
 
-// YENİ: Buton Durumlarını Güncelle (Değişiklik Yok)
+// YENİ: Buton Durumlarını Güncelle (SessionStorage'a Geçildi)
 function updateBtnStates() {
-  const hasSent = localStorage.getItem("hasSentSecret") === "true";
-  const hasFetched = localStorage.getItem("hasFetchedSecret") === "true";
+  // session storage'dan oku (Tarayıcı kapanınca sıfırlanır)
+  const hasFetched = sessionStorage.getItem("hasFetchedSecret") === "true"; 
 
-  if (hasFetched) {
-    lock(fetchBtn, true); 
-  } else {
-    lock(fetchBtn, !hasSent); 
-  }
+  lock(sendBtn, false, "Submit Secret"); 
   
-  lock(sendBtn, false); 
+  if (hasFetched) {
+    // Eğer bu oturumda zaten bir sır çekildi ise kilitlenir
+    lock(fetchBtn, true, "Fetched for this session"); 
+  } else {
+    // Aksi takdirde, çekme butonu her zaman açıktır
+    lock(fetchBtn, false, "Get a Private Secret"); 
+  }
 }
 
 // YENİ: Feed'deki "Reply" butonlarına tıklama (Olay delegasyonu)
