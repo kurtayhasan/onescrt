@@ -1,5 +1,5 @@
 // =========================================================================================
-// ONESCRT - NIHAI KOD (Tüm Hata Düzeltmeleri ve Özellikler Dahil)
+// ONESCRT - NİHAİ KOD (POW Çözümü ve Tüm Özellikler Dahil)
 // =========================================================================================
 
 // ========== CONFIG (FINAL) ==========
@@ -176,8 +176,7 @@ function toggleBlock(publicKeyJwk, nickname) {
 }
 
 
-// ========== YENİ: PROOF-OF-WORK (POW) SPAM KORUMASI ==========
-// CRITICAL FIX: Hash'i Base64 üzerinde hesapla, bu server/client eşleşmesini garantiler.
+// ========== YENİ: PROOF-OF-WORK (POW) SPAM KORUMASI - NİHAİ ÇÖZÜM ==========
 const DIFFICULTY = 4; // Hash'in ilk 4 hanesi '0' olmalı
 const TARGET_PREFIX = '0'.repeat(DIFFICULTY);
 const ENCODER = new TextEncoder();
@@ -199,6 +198,7 @@ async function sha256(str) {
   return hashHex;
 }
 
+// NİHAİ POW ÇÖZÜMÜ: Base64 String'i ve Hash'i Birlikte Döndürür
 async function solveProofOfWork(payload) {
     // 1. Payload'ı JSON string'e çevir
     const jsonString = JSON.stringify(payload);
@@ -206,7 +206,7 @@ async function solveProofOfWork(payload) {
     // 2. JSON string'ini ArrayBuffer'a çevir
     const buffer = ENCODER.encode(jsonString);
     
-    // 3. ArrayBuffer'ı Base64 string'e çevir (Sunucuyla eşleşmeyi garanti eden string)
+    // 3. ArrayBuffer'ı Base64 string'e çevir (Sunucuyla eşleşmeyi GARANTİ eden string)
     const base64String = arrayBufferToBase64(buffer); 
     
     let nonce = 0;
@@ -222,8 +222,8 @@ async function solveProofOfWork(payload) {
             await new Promise(r => setTimeout(r, 0)); // Tarayıcıyı kısa süre serbest bırak
         }
     }
-    // NOT: Payload'ın kendisine değil, onun Base64 formatına ait hash'i gönderiyoruz.
-    return { nonce, hash };
+    // HASH EŞLEŞMESİ İÇİN KRİTİK: HASH'LENEN STRING'İ DE GERİ DÖNDÜR
+    return { nonce, hash, base64String }; 
 }
 
 // ========== ARAYÜZ YARDIMCI FONKSİYONLARI ==========
@@ -258,7 +258,7 @@ secretType.addEventListener("change", () => {
   }
 });
 
-// YENİ: Sır Gönderme (KENDİ KENDİNİ İMHA EKLENDİ)
+// YENİ: Sır Gönderme
 async function submitSecret() {
   const content = secretInput.value.trim();
   const isPublic = secretType.value === "public";
@@ -270,31 +270,25 @@ async function submitSecret() {
   
   lock(sendBtn, true, "Calculating Proof-of-Work (Spam Guard)...");
   
- // ... submitSecret fonksiyonu içinde
-try {
+  try {
     const nickname = generateNickname();
     const replyKeyPair = await generateE2EEKeyPair(); 
     
-    // CRITICAL FIX: is_public boolean değerini küçük harfli string'e çevir.
-    const isPublicString = isPublic ? "true" : "false"; 
-    
     let payload = {
       nickname: nickname,
-      is_public: isPublicString, // ARTIK STRING OLARAK GÖNDERİLİYOR
+      is_public: isPublic,
       public_key_for_replies: JSON.stringify(replyKeyPair.publicKeyJwk),
       content: content,
-      // YENİ: KENDİ KENDİNİ İMHA SÜRESİ
+      // KENDİ KENDİNİ İMHA SÜRESİ
       expires_at: isPublic ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : null
     };
     
-    // 1. Proof-of-Work Hesapla
-    // ... (geri kalan kod aynı)
-    
-    // 1. Proof-of-Work Hesapla
-    const { nonce, hash } = await solveProofOfWork(payload);
+    // 1. Proof-of-Work Hesapla (Yeni base64String'i yakala)
+    const { nonce, hash, base64String } = await solveProofOfWork(payload);
     
     payload.pow_nonce = nonce;
     payload.pow_hash = hash;
+    payload.pow_string_base64 = base64String; // SUNUCU KONTROLÜ İÇİN BASE64 STRING'İ EKLE
     
     // 2. Sırrı veritabanına gönder
     lock(sendBtn, true, "Submitting Secret...");
@@ -682,6 +676,7 @@ async function showInboxModal() {
   const loadingEl = modal.querySelector("#inbox-loading");
   
   try {
+    const db = getLocalDatabase();
     const mySecretIds = db.my_secrets.map(s => s.secret_id);
     if (mySecretIds.length === 0) {
       loadingEl.textContent = "No secrets found.";
