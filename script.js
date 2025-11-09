@@ -24,7 +24,7 @@ const NOUNS = ["Tilki", "Kaplan", "Panda", "Gezgin", "Sincap", "Casus", "Dağcı
 function generateNickname() {
   const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-  const code = Math.random().toString(36).substring(2, 6); // 4 haneli rastgele kod
+  const code = Math.random().toString(36).substring(2, 6); 
   return `${adj} ${noun} ${code}`;
 }
 
@@ -99,7 +99,7 @@ async function decryptChatMessage(encryptedBase64, ivBase64, sharedSecret) {
   }
 }
 
-// ========== YENİ: LOCALSTORAGE (Veritabanı) YÖNETİMİ (DÜZELTİLDİ) ==========
+// ========== YENİ: LOCALSTORAGE (Veritabanı) YÖNETİMİ ==========
 function getLocalDatabase() {
   let dbString = localStorage.getItem("onescrt_keys");
   
@@ -149,13 +149,50 @@ function saveMySecretKeys(secret_id, nickname, replyKeyPair) {
   saveLocalDatabase(db);
 }
 
+// ========== YENİ: PROOF-OF-WORK (POW) SPAM KORUMASI (PLAN 10) ==========
+const DIFFICULTY = 4; // Hash'in ilk 4 hanesi '0' olmalı
+const TARGET_PREFIX = '0'.repeat(DIFFICULTY);
+const ENCODER = new TextEncoder();
+
+async function sha256(str) {
+  const buffer = ENCODER.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashHex;
+}
+
+async function solveProofOfWork(payload) {
+    const dataString = JSON.stringify(payload);
+    let nonce = 0;
+    let hash = '';
+    
+    // toast("Solving Proof-of-Work...");
+    
+    // 5000 denemede bir UI'ın donmaması için Promise'i çöz ve bekle
+    while (!hash.startsWith(TARGET_PREFIX)) {
+        nonce++;
+        const attempt = dataString + nonce;
+        hash = await sha256(attempt);
+        
+        if (nonce % 5000 === 0) {
+            await new Promise(r => setTimeout(r, 0)); // Tarayıcıyı kısa süre serbest bırak
+        }
+    }
+    // console.log(`POW Solved: Nonce=${nonce}, Hash=${hash}`);
+    return { nonce, hash };
+}
+
 // ========== ARAYÜZ YARDIMCI FONKSİYONLARI ==========
-function lock(btn, state = true) {
+function lock(btn, state = true, msg = null) {
   if (!btn) return;
   btn.disabled = state;
   btn.classList.toggle("opacity-50", state);
   btn.classList.toggle("cursor-not-allowed", state);
+  if (msg) btn.textContent = msg;
+  else btn.textContent = state ? "Processing..." : "Submit Secret";
 }
+
 function toast(msg, type = "info") {
   const div = document.createElement("div");
   div.textContent = msg;
@@ -166,9 +203,8 @@ function toast(msg, type = "info") {
   setTimeout(() => div.remove(), 2500);
 }
 
-// ========== ANA FONKSİYONLAR (AŞAMA 1) ==========
+// ========== ANA FONKSİYONLAR (AŞAMA 2) ==========
 
-// YENİ: Public/Private Seçeneğini Dinle
 secretType.addEventListener("change", () => {
   if (secretType.value === "public") {
     secretWarningPrivate.classList.add("hidden");
@@ -179,7 +215,7 @@ secretType.addEventListener("change", () => {
   }
 });
 
-// YENİ: Sır Gönderme (Model B - Yarı Hibrit)
+// YENİ: Sır Gönderme (POW EKLENDİ)
 async function submitSecret() {
   const content = secretInput.value.trim();
   const isPublic = secretType.value === "public";
@@ -189,7 +225,7 @@ async function submitSecret() {
     return;
   }
   
-  lock(sendBtn, true);
+  lock(sendBtn, true, "Calculating Proof-of-Work (Spam Guard)...");
   lock(fetchBtn, true); 
   
   try {
@@ -203,6 +239,15 @@ async function submitSecret() {
       content: content 
     };
     
+    // 1. Proof-of-Work Hesapla
+    const { nonce, hash } = await solveProofOfWork(payload);
+    
+    // 2. Payload'a POW verilerini ekle (Sunucu tarafında kontrol edilmelidir)
+    payload.pow_nonce = nonce;
+    payload.pow_hash = hash;
+    
+    // 3. Sırrı veritabanına gönder
+    lock(sendBtn, true, "Submitting Secret...");
     const { data, error } = await supabaseClient
       .from('secrets')
       .insert(payload)
@@ -226,34 +271,58 @@ async function submitSecret() {
   } catch (e) {
     toast("Error submitting secret: " + e.message, "error");
   } finally {
-    lock(sendBtn, false);
+    lock(sendBtn, false, "Submit Secret");
     updateBtnStates();
   }
 }
 
-// YENİ: "Latest Secrets" (Public) Feed'ini Yükler
+// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (VIBES EKLENDİ)
 async function loadLatestSecretsFeed() {
   feedLoading.classList.remove("hidden");
   feed.innerHTML = "";
   
   try {
-    const { data, error } = await supabaseClient
+    // 1. Sırları ve Tepki Sayılarını Çek
+    // (JOIN veya ayrı RPC çağrısı yapmamız gerekiyor)
+    const { data: secrets, error: secretsError } = await supabaseClient
       .from('secrets')
       .select('id, nickname, content, public_key_for_replies')
       .eq('is_public', true) 
       .order('created_at', { ascending: false })
       .limit(20);
       
-    if (error) throw new Error(error.message);
+    if (secretsError) throw new Error(secretsError.message);
     
-    if (data.length === 0) {
+    if (secrets.length === 0) {
       feedLoading.textContent = "No public secrets yet. Be the first!";
       return;
     }
     
+    // 2. Tüm Tepkileri tek seferde çek (Performans için)
+    const secretIds = secrets.map(s => s.id);
+    const { data: vibesData, error: vibesError } = await supabaseClient
+      .from('secret_vibes')
+      .select('secret_id, vibe_type, count')
+      .in('secret_id', secretIds)
+      .limit(1000); // 1000'e kadar tepki çeker (yeterli)
+
+    if (vibesError) console.warn("Could not load vibes:", vibesError.message);
+    
+    // 3. Tepkileri sır ID'sine göre grupla
+    const vibesMap = {};
+    if (vibesData) {
+        vibesData.forEach(v => {
+            if (!vibesMap[v.secret_id]) vibesMap[v.secret_id] = {};
+            vibesMap[v.secret_id][v.vibe_type] = v.count;
+        });
+    }
+
     feedLoading.classList.add("hidden");
     
-    data.forEach(secret => {
+    secrets.forEach(secret => {
+      const currentVibes = vibesMap[secret.id] || {};
+      const totalVibes = Object.values(currentVibes).reduce((sum, count) => sum + count, 0);
+      
       const div = document.createElement("div");
       div.className = "bg-gray-800 p-3 rounded-lg";
       div.innerHTML = `
@@ -262,9 +331,16 @@ async function loadLatestSecretsFeed() {
         </p>
         <div class="flex justify-between items-center mt-2">
           <span class="text-xs text-cyan-400 font-semibold">${secret.nickname}</span>
-          <button data-secret-id="${secret.id}" data-nickname="${secret.nickname}" data-content="${encodeURIComponent(secret.content)}" data-public-key='${secret.public_key_for_replies}' class="reply-to-public-btn text-xs bg-cyan-600 hover:bg-cyan-700 text-white py-1 px-2 rounded">
-            Reply
-          </button>
+          <div class="flex items-center gap-3">
+              <div class="flex gap-2">
+                ${renderVibeButton(secret.id, 'love', '❤️', currentVibes['love'] || 0)}
+                ${renderVibeButton(secret.id, 'shock', '🤯', currentVibes['shock'] || 0)}
+                ${renderVibeButton(secret.id, 'funny', '😂', currentVibes['funny'] || 0)}
+              </div>
+              <button data-secret-id="${secret.id}" data-nickname="${secret.nickname}" data-content="${encodeURIComponent(secret.content)}" data-public-key='${secret.public_key_for_replies}' class="reply-to-public-btn text-xs bg-cyan-600 hover:bg-cyan-700 text-white py-1 px-2 rounded">
+                Reply
+              </button>
+          </div>
         </div>
       `;
       feed.appendChild(div);
@@ -275,6 +351,59 @@ async function loadLatestSecretsFeed() {
     toast("Error loading feed: " + e.message, "error");
   }
 }
+
+// YENİ: Tepki Butonu HTML'i
+function renderVibeButton(secretId, vibeType, emoji, count) {
+    return `
+        <button 
+            data-secret-id="${secretId}" 
+            data-vibe-type="${vibeType}" 
+            class="vibe-btn text-xs bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded-full transition duration-150 flex items-center gap-1"
+            title="React with ${emoji}">
+            ${emoji} <span class="vibe-count">${count}</span>
+        </button>
+    `;
+}
+
+// YENİ: Tepki Gönderme İşlemi (VIBES)
+async function sendVibe(secretId, vibeType, button) {
+    const db = getLocalDatabase();
+    
+    // Tekrar tıklamayı engelle
+    lock(button, true);
+
+    try {
+        const { error } = await supabaseClient
+            .from('secret_vibes')
+            .insert({
+                secret_id: secretId,
+                viewer_id: db.viewer_id, // Local anonim ID'miz
+                vibe_type: vibeType
+            });
+            
+        if (error) {
+            // Eğer HATA bir "tekrarlanan giriş" (yani zaten tepki vermiş) ise
+            if (error.code === '23505') { // PostgreSQL Unique Violation kodu
+                 toast("You have already reacted to this secret.", "info");
+                 return;
+            }
+            throw new Error(error.message);
+        }
+        
+        // Başarılı olursa, sayacı manuel olarak artır ve butonu kilitle
+        const countSpan = button.querySelector('.vibe-count');
+        countSpan.textContent = parseInt(countSpan.textContent) + 1;
+        
+        toast(`Vibe ${button.querySelector('span').previousSibling.textContent} sent!`, "success");
+        
+    } catch (e) {
+        toast("Error sending vibe: " + e.message, "error");
+    } finally {
+        lock(button, false); // İşlem tamamlandı, butonu tekrar aç (başarısız olduysa tekrar dener)
+        if (button.textContent.includes('reacted')) lock(button, true); // Zaten tepki verdiyse kilitli kalır
+    }
+}
+
 
 // YENİ: "Get a Private Secret" (Eski fetchBtn)
 async function fetchPrivateSecret() {
@@ -329,9 +458,9 @@ async function fetchPrivateSecret() {
   }
 }
 
-// YENİ: Modal (Hem Public hem Private için)
+// YENİ: Modal (Hem Public hem Private için) (Değişiklik Yok)
 function showSecretModal(secretObject, type = "public") {
-  
+  // ... (Kod aynı kalır)
   const { id: secret_id, nickname, content, public_key_for_replies } = secretObject;
   const overlay = document.createElement("div");
   overlay.className = "fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4";
@@ -371,8 +500,7 @@ function showSecretModal(secretObject, type = "public") {
     }
     
     const replyBtn = modal.querySelector("#replyBtn");
-    lock(replyBtn, true);
-    replyBtn.textContent = "Encrypting... Generating keys...";
+    lock(replyBtn, true, "Encrypting and Sending...");
     
     try {
       const myReplyKeyPair = await generateE2EEKeyPair();
@@ -405,13 +533,12 @@ function showSecretModal(secretObject, type = "public") {
     } catch(e) {
       toast("Error sending reply: " + e.message, "error"); 
     } finally {
-      lock(replyBtn, false);
-      replyBtn.textContent = "Send Reply (E2E Encrypted)";
+      lock(replyBtn, false, "Send Reply (E2E Encrypted)");
     }
   });
 }
 
-// YENİ: "Inbox" (Komple Yeniden Yazıldı)
+// YENİ: "Inbox" (Değişiklik Yok)
 async function showInboxModal() {
   const db = getLocalDatabase();
   
@@ -511,8 +638,9 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (Inbox içindeki sağ panel)
+// YENİ: Seçilen Sohbeti Yükler (Değişiklik Yok)
 async function loadConversation(modal, convo) {
+  // ... (Kod aynı kalır)
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
   const replyBtn = modal.querySelector("#inboxReplyBtn");
@@ -533,7 +661,6 @@ async function loadConversation(modal, convo) {
     for (const msg of convo.messages) {
       const decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
       const msgDiv = document.createElement("div");
-      // KRİTİK EKSİK: Kimin gönderdiğini kontrol edip renk vermeliyiz. (Aşama 2'ye kalsın)
       msgDiv.className = "p-2 bg-gray-900 rounded-lg"; 
       msgDiv.innerHTML = `
         <p class="text-xs text-cyan-400">${convo.sender_nickname} (${new Date(msg.created_at).toLocaleTimeString()})</p>
@@ -592,7 +719,7 @@ async function loadConversation(modal, convo) {
   }
 }
 
-// YENİ: Bildirimleri Kontrol Et
+// YENİ: Bildirimleri Kontrol Et (Değişiklik Yok)
 function checkNotifications(allMessages, db) {
   const lastCheck = new Date(db.last_inbox_check);
   let hasNewMessage = false;
@@ -618,7 +745,7 @@ function checkNotifications(allMessages, db) {
   saveLocalDatabase(db);
 }
 
-// YENİ: Yedekleme ve Geri Yükleme (Plan 9 - Kırılganlık Çözümü)
+// YENİ: Yedekleme ve Geri Yükleme (Değişiklik Yok)
 async function backupKeys() {
   const db = getLocalDatabase();
   if (db.my_secrets.length === 0 && db.blocked_keys.length === 0) {
@@ -730,7 +857,7 @@ async function restoreKeys() {
   fileInput.click();
 }
 
-// YENİ: Yedekleme Butonunu Ayarla
+// YENİ: Yedekleme Butonunu Ayarla (Değişiklik Yok)
 backupBtn.addEventListener("click", () => {
   if (confirm("Backup: Download an encrypted file of your keys.\nRestore: Use a backup file.\n\nDo you want to BACKUP (OK) or RESTORE (Cancel)?")) {
     backupKeys();
@@ -740,7 +867,7 @@ backupBtn.addEventListener("click", () => {
 });
 
 
-// YENİ: Buton Durumlarını Güncelle (Model B)
+// YENİ: Buton Durumlarını Güncelle (Değişiklik Yok)
 function updateBtnStates() {
   const hasSent = localStorage.getItem("hasSentSecret") === "true";
   const hasFetched = localStorage.getItem("hasFetchedSecret") === "true";
@@ -767,8 +894,18 @@ document.body.addEventListener("click", (e) => {
   }
 });
 
+// YENİ: Tepki Butonlarına Tıklama (Olay delegasyonu)
+document.body.addEventListener("click", (e) => {
+  const vibeBtn = e.target.closest('.vibe-btn');
+  if (vibeBtn) {
+    const secretId = vibeBtn.dataset.secretId;
+    const vibeType = vibeBtn.dataset.vibeType;
+    sendVibe(secretId, vibeType, vibeBtn);
+  }
+});
 
-// ========== SAYFA YÜKLENİNCE (AŞAMA 1) ==========
+
+// ========== SAYFA YÜKLENİNCE (AŞAMA 2) ==========
 window.addEventListener("DOMContentLoaded", () => {
   // Butonları bağla
   sendBtn.addEventListener("click", submitSecret);
