@@ -176,10 +176,20 @@ function toggleBlock(publicKeyJwk, nickname) {
 }
 
 
-// ========== YENİ: PROOF-OF-WORK (POW) SPAM KORUMASI (PLAN 10) ==========
+// ========== YENİ: PROOF-OF-WORK (POW) SPAM KORUMASI ==========
+// CRITICAL FIX: Hash'i Base64 üzerinde hesapla, bu server/client eşleşmesini garantiler.
 const DIFFICULTY = 4; // Hash'in ilk 4 hanesi '0' olmalı
 const TARGET_PREFIX = '0'.repeat(DIFFICULTY);
 const ENCODER = new TextEncoder();
+
+// ArrayBuffer'ı Base64 string'e çeviren yardımcı fonksiyon
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
+  return btoa(binary);
+}
 
 async function sha256(str) {
   const buffer = ENCODER.encode(str);
@@ -190,19 +200,29 @@ async function sha256(str) {
 }
 
 async function solveProofOfWork(payload) {
-    const dataString = JSON.stringify(payload);
+    // 1. Payload'ı JSON string'e çevir
+    const jsonString = JSON.stringify(payload);
+    
+    // 2. JSON string'ini ArrayBuffer'a çevir
+    const buffer = ENCODER.encode(jsonString);
+    
+    // 3. ArrayBuffer'ı Base64 string'e çevir (Sunucuyla eşleşmeyi garanti eden string)
+    const base64String = arrayBufferToBase64(buffer); 
+    
     let nonce = 0;
     let hash = '';
     
     while (!hash.startsWith(TARGET_PREFIX)) {
         nonce++;
-        const attempt = dataString + nonce;
+        // HASH hesaplamasını Base64 string'i üzerinde yap
+        const attempt = base64String + nonce;
         hash = await sha256(attempt);
         
         if (nonce % 5000 === 0) {
             await new Promise(r => setTimeout(r, 0)); // Tarayıcıyı kısa süre serbest bırak
         }
     }
+    // NOT: Payload'ın kendisine değil, onun Base64 formatına ait hash'i gönderiyoruz.
     return { nonce, hash };
 }
 
