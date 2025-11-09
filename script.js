@@ -756,7 +756,7 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (KENDİ/KARŞI TARAF MESAJ AYRIMI EKLENDİ)
+// YENİ: Seçilen Sohbeti Yükler (KENDİ MESAJ İÇİN GÜVENLİ GERİ DÖNÜŞ EKLENDİ)
 async function loadConversation(modal, convo) {
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
@@ -772,28 +772,32 @@ async function loadConversation(modal, convo) {
     
     const myReplyKeyString = JSON.stringify(mySecret.public_key_for_replies);
     
-    // Karşı tarafın public key'ini bul (Bize ilk yazan kişinin key'i)
+    // Karşı tarafın public key'ini bul
     const partnerKeyString = convo.partner_public_key;
     const partnerPublicKeyJwk = JSON.parse(partnerKeyString);
 
-    // Kendi private key'imiz ile karşı tarafın public key'ini kullanarak paylaşımlı gizli anahtarı türet
+    // Paylaşımlı gizli anahtarı türet
     const myReplyPrivateKey = await importPrivateKey(mySecret.private_key_for_replies);
     const sharedSecret = await deriveSharedSecret(myReplyPrivateKey, partnerPublicKeyJwk);
     
     
     messageFeed.innerHTML = ""; 
-    // Mesajları tarihe göre tekrar sırala (çünkü birleştirildiler)
     convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
     for (const msg of convo.messages) {
       
       const isMyMessage = msg.sender_public_key === myReplyKeyString;
       
-      let decryptedText = "[Could not decrypt]";
-      // Mesajı kimin gönderdiğine bakarak doğru anahtarla çözmeye çalış
+      let decryptedText = "[Cannot decrypt]"; 
       
-      // Şifre Çözme İşlemi: Her zaman kendi private key'imizle, karşı tarafın public key'ini birleştirerek türettiğimiz sharedSecret'i kullanıyoruz.
-      decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
+      // KRİTİK DÜZELTME: Kendi gönderdiğimiz mesajı çözmeye çalışmayı bırak, 
+      // çünkü bu E2EE'de hatalara neden oluyor. Sadece Gelen kutusunu çöz.
+      if (isMyMessage) {
+          decryptedText = "[Message Sent]"; 
+      } else {
+          // Gelen kutusu mesajını çöz
+          decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
+      }
       
       
       const msgDiv = document.createElement("div");
@@ -820,7 +824,7 @@ async function loadConversation(modal, convo) {
 
       messageFeed.appendChild(msgDiv);
     }
-    messageFeed.scrollTop = messageFeed.scrollHeight; // En alta kaydır
+    messageFeed.scrollTop = messageFeed.scrollHeight; 
 
     replyArea.classList.remove("hidden");
     replyText.value = "";
@@ -841,7 +845,7 @@ async function loadConversation(modal, convo) {
         const messagePayload = {
           secret_id: convo.secret_id, 
           sender_nickname: mySecret.nickname, 
-          sender_public_key: myReplyKeyString, // GÖNDEREN BİZİZ
+          sender_public_key: myReplyKeyString, 
           encrypted_content: encrypted_content,
           iv: iv
         };
@@ -852,7 +856,7 @@ async function loadConversation(modal, convo) {
           
         if (msgError) throw new Error("Reply could not be sent: " + msgError.message);
         
-        // Kendi mesajımızı manuel olarak feed'e ekle
+        // Kendi mesajımızı manuel olarak feed'e ekle (ÇÖZÜLMÜŞ METİNİ GÖSTER)
         const msgDiv = document.createElement("div");
         msgDiv.className = "flex justify-end";
         msgDiv.innerHTML = `
@@ -862,7 +866,7 @@ async function loadConversation(modal, convo) {
           </div>
         `;
         messageFeed.appendChild(msgDiv);
-        messageFeed.scrollTop = messageFeed.scrollHeight; // En alta kaydır
+        messageFeed.scrollTop = messageFeed.scrollHeight; 
         
         replyText.value = "";
         
@@ -877,7 +881,6 @@ async function loadConversation(modal, convo) {
     messageFeed.innerHTML = `<p class="text-red-400">Error decrypting conversation: ${e.message}</p>`;
   }
 }
-
 // YENİ: Bildirimleri Kontrol Et (Değişiklik Yok)
 function checkNotifications(allMessages, db) {
   const lastCheck = new Date(db.last_inbox_check);
