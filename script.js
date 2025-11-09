@@ -111,7 +111,7 @@ function getLocalDatabase() {
     console.warn("Local storage key bozuk veya eksik. Yeni database oluşturuluyor.");
     let db = {
       my_secrets: [],
-      blocked_keys: [],
+      blocked_keys: [], // Engellenenler listesi
       viewer_id: `anon-${crypto.randomUUID()}`,
       last_inbox_check: new Date(0).toISOString()
     };
@@ -149,6 +149,29 @@ function saveMySecretKeys(secret_id, nickname, replyKeyPair) {
   saveLocalDatabase(db);
 }
 
+// YENİ: ENGELLEME İŞLEMLERİ
+function isBlocked(publicKeyJwk) {
+    const db = getLocalDatabase();
+    return db.blocked_keys.includes(JSON.stringify(publicKeyJwk));
+}
+function toggleBlock(publicKeyJwk, nickname) {
+    const db = getLocalDatabase();
+    const keyString = JSON.stringify(publicKeyJwk);
+    
+    if (db.blocked_keys.includes(keyString)) {
+        db.blocked_keys = db.blocked_keys.filter(k => k !== keyString);
+        saveLocalDatabase(db);
+        toast(`${nickname} unblocked.`, "info");
+        return false;
+    } else {
+        db.blocked_keys.push(keyString);
+        saveLocalDatabase(db);
+        toast(`${nickname} blocked! Their messages will be hidden.`, "error");
+        return true;
+    }
+}
+
+
 // ========== YENİ: PROOF-OF-WORK (POW) SPAM KORUMASI (PLAN 10) ==========
 const DIFFICULTY = 4; // Hash'in ilk 4 hanesi '0' olmalı
 const TARGET_PREFIX = '0'.repeat(DIFFICULTY);
@@ -169,7 +192,6 @@ async function solveProofOfWork(payload) {
     
     // toast("Solving Proof-of-Work...");
     
-    // 5000 denemede bir UI'ın donmaması için Promise'i çöz ve bekle
     while (!hash.startsWith(TARGET_PREFIX)) {
         nonce++;
         const attempt = dataString + nonce;
@@ -179,7 +201,6 @@ async function solveProofOfWork(payload) {
             await new Promise(r => setTimeout(r, 0)); // Tarayıcıyı kısa süre serbest bırak
         }
     }
-    // console.log(`POW Solved: Nonce=${nonce}, Hash=${hash}`);
     return { nonce, hash };
 }
 
@@ -203,7 +224,7 @@ function toast(msg, type = "info") {
   setTimeout(() => div.remove(), 2500);
 }
 
-// ========== ANA FONKSİYONLAR (AŞAMA 2) ==========
+// ========== ANA FONKSİYONLAR (AŞAMA 3) ==========
 
 secretType.addEventListener("change", () => {
   if (secretType.value === "public") {
@@ -215,7 +236,7 @@ secretType.addEventListener("change", () => {
   }
 });
 
-// YENİ: Sır Gönderme (POW EKLENDİ)
+// YENİ: Sır Gönderme (KENDİ KENDİNİ İMHA EKLENDİ)
 async function submitSecret() {
   const content = secretInput.value.trim();
   const isPublic = secretType.value === "public";
@@ -236,17 +257,19 @@ async function submitSecret() {
       nickname: nickname,
       is_public: isPublic,
       public_key_for_replies: JSON.stringify(replyKeyPair.publicKeyJwk),
-      content: content 
+      content: content,
+      // YENİ: KENDİ KENDİNİ İMHA SÜRESİ
+      // Public ise 7 gün sonra silinsin (Örnek süre)
+      expires_at: isPublic ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : null
     };
     
     // 1. Proof-of-Work Hesapla
     const { nonce, hash } = await solveProofOfWork(payload);
     
-    // 2. Payload'a POW verilerini ekle (Sunucu tarafında kontrol edilmelidir)
     payload.pow_nonce = nonce;
     payload.pow_hash = hash;
     
-    // 3. Sırrı veritabanına gönder
+    // 2. Sırrı veritabanına gönder
     lock(sendBtn, true, "Submitting Secret...");
     const { data, error } = await supabaseClient
       .from('secrets')
@@ -262,7 +285,12 @@ async function submitSecret() {
     sendMsg.classList.remove("hidden");
     localStorage.setItem("hasSentSecret", "true"); 
     updateBtnStates();
-    toast("✅ Secret submitted! Your keys are saved locally.", "success");
+    
+    let confirmationMsg = "✅ Secret submitted! Your keys are saved locally.";
+    if (isPublic) {
+        confirmationMsg += " (This secret will self-destruct in 7 days)";
+    }
+    toast(confirmationMsg, "success");
     
     if (isPublic) {
       loadLatestSecretsFeed(); 
@@ -276,30 +304,38 @@ async function submitSecret() {
   }
 }
 
-// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (VIBES EKLENDİ VE HATALAR DÜZELTİLDİ)
+// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (POPÜLER SIRLAR EKLENDİ)
 async function loadLatestSecretsFeed() {
   feedLoading.classList.remove("hidden");
   feed.innerHTML = "";
   
   try {
-    // 1. Sırları Çek
-    const { data: secrets, error: secretsError } = await supabaseClient
+    // 1. Sırları Çek (Popüler Sırlar listesi için Top 3 eklendi)
+    const { data: popularSecrets, error: popularError } = await supabaseClient
+        .from('vibe_counts')
+        .select('secret_id, vibe_type, count')
+        .order('count', { ascending: false })
+        .limit(3);
+    
+    const popularIds = popularSecrets ? [...new Set(popularSecrets.map(v => v.secret_id))] : [];
+
+    // Top 20 en son sırrı çek
+    const { data: latestSecrets, error: latestError } = await supabaseClient
       .from('secrets')
       .select('id, nickname, content, public_key_for_replies')
       .eq('is_public', true) 
       .order('created_at', { ascending: false })
       .limit(20);
       
-    if (secretsError) throw new Error(secretsError.message);
+    if (latestError) throw new Error(latestError.message);
     
-    if (secrets.length === 0) {
+    if (latestSecrets.length === 0) {
       feedLoading.textContent = "No public secrets yet. Be the first!";
       return;
     }
     
     // 2. Tüm Tepkileri VIEW'den çek
-    const secretIds = secrets.map(s => s.id);
-    // Vibe'ı çekmek için yeni oluşturduğumuz VIEW'ı (vibe_counts) kullanıyoruz
+    const secretIds = latestSecrets.map(s => s.id);
     const { data: vibesData, error: vibesError } = await supabaseClient
       .from('vibe_counts') 
       .select('secret_id, vibe_type, count')
@@ -318,13 +354,16 @@ async function loadLatestSecretsFeed() {
 
     feedLoading.classList.add("hidden");
     
-    secrets.forEach(secret => {
+    // 4. Feed'i Oluştur
+    latestSecrets.forEach(secret => {
       const currentVibes = vibesMap[secret.id] || {};
+      const isPopular = popularIds.includes(secret.id);
       
       const div = document.createElement("div");
-      div.className = "bg-gray-800 p-3 rounded-lg";
+      div.className = "bg-gray-800 p-3 rounded-lg border-2" + (isPopular ? " border-yellow-500 shadow-lg" : " border-gray-800"); // Popülerlik görseli
       div.innerHTML = `
         <p class="text-sm text-white whitespace-pre-line break-words">
+          ${isPopular ? '<span class="text-yellow-400 font-bold mr-1">🔥 HOT:</span>' : ''}
           ${secret.content.substring(0, 100)}...
         </p>
         <div class="flex justify-between items-center mt-2">
@@ -350,7 +389,7 @@ async function loadLatestSecretsFeed() {
   }
 }
 
-// YENİ: Tepki Butonu HTML'i
+// YENİ: Tepki Butonu HTML'i (Değişiklik Yok)
 function renderVibeButton(secretId, vibeType, emoji, count) {
     return `
         <button 
@@ -363,13 +402,12 @@ function renderVibeButton(secretId, vibeType, emoji, count) {
     `;
 }
 
-// YENİ: Tepki Gönderme İşlemi (VIBES) (TOAST hatası düzeltildi)
+// YENİ: Tepki Gönderme İşlemi (Hata Düzeltmeleri Dahil)
 async function sendVibe(secretId, vibeType, button) {
     const db = getLocalDatabase();
     
     lock(button, true);
     
-    // Emoji bilgisini al (VIBE TİPİNE GÖRE EMOJİ HARİTASI)
     const emojiMap = { 'love': '❤️', 'shock': '🤯', 'funny': '😂' };
     const emoji = emojiMap[vibeType] || '👍'; 
 
@@ -383,10 +421,8 @@ async function sendVibe(secretId, vibeType, button) {
             });
             
         if (error) {
-            // Eğer HATA bir "tekrarlanan giriş" (409 hatası) ise
             if (error.code === '23505') { 
                  toast("You have already reacted to this secret.", "info");
-                 // Butonu kilitle
                  button.disabled = true;
                  button.classList.add("opacity-50", "cursor-not-allowed");
                  return;
@@ -394,11 +430,9 @@ async function sendVibe(secretId, vibeType, button) {
             throw new Error(error.message);
         }
         
-        // Başarılı olursa, sayacı manuel olarak artır ve butonu kilitle
         const countSpan = button.querySelector('.vibe-count');
         countSpan.textContent = parseInt(countSpan.textContent) + 1;
         
-        // HATA DÜZELTME: Toast mesajı artık güvenli bir şekilde emoji'yi kullanıyor.
         toast(`Vibe ${emoji} sent!`, "success");
         button.disabled = true;
         button.classList.add("opacity-50", "cursor-not-allowed");
@@ -464,7 +498,7 @@ async function fetchPrivateSecret() {
   }
 }
 
-// YENİ: Modal (Hem Public hem Private için) (Değişiklik Yok)
+// YENİ: Modal (ENGELLEME EKLENDİ)
 function showSecretModal(secretObject, type = "public") {
   
   const { id: secret_id, nickname, content, public_key_for_replies } = secretObject;
@@ -473,20 +507,30 @@ function showSecretModal(secretObject, type = "public") {
   
   const modal = document.createElement("div");
   modal.className = "bg-gray-900 text-white max-w-lg w-full rounded-xl shadow-xl p-6 text-left";
+  
+  // Engelleme durumunu kontrol et
+  const recipientPublicKeyJwk = JSON.parse(public_key_for_replies);
+  const isCurrentlyBlocked = isBlocked(recipientPublicKeyJwk);
+  
   modal.innerHTML = `
     <p class="text-sm ${type === 'private' ? 'text-red-400' : 'text-cyan-400'} mb-4 text-center">
       You are viewing a ${type.toUpperCase()} secret from ${nickname}.
     </p>
     <p class="text-lg font-mono mb-6 whitespace-pre-line break-words bg-gray-800 p-4 rounded">${content}</p>
+    
     <h4 class="font-semibold text-lg mb-2 text-cyan-300">Anonymous Reply to ${nickname}</h4>
     <textarea id="replyTextarea" rows="3" class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white placeholder-gray-400" placeholder="Write an encrypted reply..."></textarea>
     <button id="replyBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded transition duration-300 mt-3 w-full">
       Send Reply (E2E Encrypted)
     </button>
+    
     <hr class="border-gray-700 my-6">
-    <div class="flex justify-center gap-4">
-      <button id="copyBtn" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold">Copy Secret</button>
-      <button id="closeBtn" class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-semibold">Close</button>
+    <div class="flex justify-between items-center gap-4">
+      <button id="blockBtn" class="flex-grow bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-600 hover:bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-700 text-white px-4 py-2 rounded-lg font-semibold">
+        ${isCurrentlyBlocked ? 'Unblock' : 'Block'} ${nickname}
+      </button>
+      <button id="copyBtn" class="flex-grow bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold">Copy Secret</button>
+      <button id="closeBtn" class="flex-grow bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-semibold">Close</button>
     </div>
   `;
   overlay.appendChild(modal);
@@ -498,6 +542,24 @@ function showSecretModal(secretObject, type = "public") {
     catch { toast("Failed to copy", "error"); }
   });
   
+  // ENGELLEME İŞLEMİ
+  modal.querySelector("#blockBtn").addEventListener("click", () => {
+    const newBlockedState = toggleBlock(recipientPublicKeyJwk, nickname);
+    const blockBtn = modal.querySelector("#blockBtn");
+    
+    if (newBlockedState) {
+        blockBtn.textContent = `Unblock ${nickname}`;
+        blockBtn.classList.replace('bg-red-600', 'bg-yellow-600');
+        blockBtn.classList.replace('hover:bg-red-700', 'hover:bg-yellow-700');
+    } else {
+        blockBtn.textContent = `Block ${nickname}`;
+        blockBtn.classList.replace('bg-yellow-600', 'bg-red-600');
+        blockBtn.classList.replace('hover:bg-yellow-700', 'hover:bg-red-700');
+    }
+  });
+
+
+  // Cevaplama kısmı
   modal.querySelector("#replyBtn").addEventListener("click", async () => {
     const replyContent = modal.querySelector("#replyTextarea").value.trim();
     if (replyContent.length < 5) {
@@ -506,7 +568,7 @@ function showSecretModal(secretObject, type = "public") {
     }
     
     const replyBtn = modal.querySelector("#replyBtn");
-    lock(replyBtn, true, "Encrypting and Sending...");
+    lock(replyBtn, true, "Encrypting... Generating keys...");
     
     try {
       const myReplyKeyPair = await generateE2EEKeyPair();
@@ -544,7 +606,7 @@ function showSecretModal(secretObject, type = "public") {
   });
 }
 
-// YENİ: "Inbox" (Değişiklik Yok)
+// YENİ: "Inbox" (ENGELLEME VE KENDİ/KARŞI TARAF MESAJ AYRIMI EKLENDİ)
 async function showInboxModal() {
   const db = getLocalDatabase();
   
@@ -605,36 +667,86 @@ async function showInboxModal() {
     
     const conversations = {};
     for (const msg of messages) {
-      const convoId = `${msg.secret_id}:${msg.sender_public_key}`; 
-      
-      if (!conversations[convoId]) {
-        conversations[convoId] = {
-          secret_id: msg.secret_id,
-          sender_nickname: msg.sender_nickname,
-          sender_public_key: msg.sender_public_key,
-          messages: []
-        };
-      }
-      conversations[convoId].messages.push(msg);
+        // Anonimliği korumak için, sohbeti başlatanın public key'i üzerinden grupluyoruz.
+        // Mesaj, *ya* sır sahibinden *ya da* cevaplayandan gelmiştir. 
+        // Hangisi olduğunu belirlemek için 'msg.sender_public_key'i kullanıyoruz.
+        
+        // Bu mesajın hangi bizim sırrımıza atıldığını bul
+        const targetSecret = db.my_secrets.find(s => s.secret_id === msg.secret_id);
+        if (!targetSecret) continue; // Alakasız mesaj
+        
+        const myReplyKeyString = JSON.stringify(targetSecret.public_key_for_replies);
+
+        // Bu mesaj benden mi (sır sahibinden) gitti, yoksa karşı taraftan mı geldi?
+        const isMyMessage = msg.sender_public_key === myReplyKeyString;
+        
+        let convoId;
+        let senderNickname;
+        let senderPublicKeyJwk;
+
+        if (isMyMessage) {
+            // Mesaj benden gitmiş. Sohbeti karşı tarafın public key'i ile etiketle
+            convoId = `${msg.secret_id}:OUT:${msg.sender_public_key}`; 
+            senderNickname = msg.sender_nickname; // Benim nickim
+            senderPublicKeyJwk = JSON.parse(msg.sender_public_key);
+        } else {
+            // Mesaj karşıdan gelmiş. Sohbeti karşı tarafın public key'i ile etiketle
+            convoId = `${msg.secret_id}:IN:${msg.sender_public_key}`; 
+            senderNickname = msg.sender_nickname; // Karşı tarafın nicki
+            senderPublicKeyJwk = JSON.parse(msg.sender_public_key);
+
+            // ENGELLEME KONTROLÜ: Eğer mesaj gönderen engellenmişse, bu sohbeti oluşturma.
+            if (isBlocked(senderPublicKeyJwk)) {
+                continue; 
+            }
+        }
+        
+        if (!conversations[convoId]) {
+            conversations[convoId] = {
+                secret_id: msg.secret_id,
+                partner_nickname: isMyMessage ? "You" : msg.sender_nickname,
+                partner_public_key: msg.sender_public_key,
+                messages: []
+            };
+        }
+        conversations[convoId].messages.push(msg);
+    }
+    
+    // YENİ: Tekrarlanan convoId'leri temizle (Çünkü IN ve OUT aynı convoID'yi kullanır)
+    const uniqueConversations = {};
+    for(const key in conversations) {
+        // IN: veya OUT: prefix'ini at. Sadece secret_id:public_key kalsın
+        const uniqueKey = key.split(/:(IN|OUT):/)[0] + ':' + key.split(/:(IN|OUT):/)[2];
+        
+        if (!uniqueConversations[uniqueKey]) {
+            uniqueConversations[uniqueKey] = conversations[key];
+        } else {
+            // Mesajları birleştir
+            uniqueConversations[uniqueKey].messages.push(...conversations[key].messages);
+        }
     }
 
-    for (const convoId in conversations) {
-      const convo = conversations[convoId];
-      convo.messages.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      
-      const div = document.createElement("div");
-      div.className = "p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-700";
-      div.innerHTML = `
-        <div class="font-semibold text-white">${convo.sender_nickname}</div>
-        <div class="text-xs text-gray-400">${convo.messages.length} message(s)</div>
-      `;
-      
-      div.addEventListener("click", async () => {
-        Array.from(convoListEl.children).forEach(child => child.classList.remove('bg-cyan-900'));
-        div.classList.add('bg-cyan-900');
-        await loadConversation(modal, convo);
-      });
-      convoListEl.appendChild(div);
+
+    for (const convoKey in uniqueConversations) {
+        const convo = uniqueConversations[convoKey];
+        // Mesajları tarihe göre sırala
+        convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        
+        const latestMsg = convo.messages[convo.messages.length - 1];
+        
+        const div = document.createElement("div");
+        div.className = "p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-700";
+        div.innerHTML = `
+            <div class="font-semibold text-white">${convo.partner_nickname === "You" ? "New Chat" : convo.partner_nickname}</div>
+            <div class="text-xs text-gray-400">${convo.messages.length} message(s)</div>
+        `;
+        
+        div.addEventListener("click", async () => {
+            Array.from(convoListEl.children).forEach(child => child.classList.remove('bg-cyan-900'));
+            div.classList.add('bg-cyan-900');
+            await loadConversation(modal, convo);
+        });
+        convoListEl.appendChild(div);
     }
     
     checkNotifications(messages, db);
@@ -644,39 +756,76 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (Değişiklik Yok)
+// YENİ: Seçilen Sohbeti Yükler (KENDİ/KARŞI TARAF MESAJ AYRIMI EKLENDİ)
 async function loadConversation(modal, convo) {
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
   const replyBtn = modal.querySelector("#inboxReplyBtn");
   const replyText = modal.querySelector("#inboxReplyText");
   
-  messageFeed.innerHTML = `<p class="text-gray-400">Decrypting messages from ${convo.sender_nickname}...</p>`;
+  messageFeed.innerHTML = `<p class="text-gray-400">Decrypting messages from ${convo.partner_nickname}...</p>`;
   
   try {
     const db = getLocalDatabase();
     const mySecret = db.my_secrets.find(s => s.secret_id === convo.secret_id);
     if (!mySecret) throw new Error("Local private key for this secret not found!");
     
+    const myReplyKeyString = JSON.stringify(mySecret.public_key_for_replies);
+    
+    // Karşı tarafın public key'ini bul (Bize ilk yazan kişinin key'i)
+    const partnerKeyString = convo.partner_public_key;
+    const partnerPublicKeyJwk = JSON.parse(partnerKeyString);
+
+    // Kendi private key'imiz ile karşı tarafın public key'ini kullanarak paylaşımlı gizli anahtarı türet
     const myReplyPrivateKey = await importPrivateKey(mySecret.private_key_for_replies);
-    const senderPublicKey = JSON.parse(convo.sender_public_key);
-    const sharedSecret = await deriveSharedSecret(myReplyPrivateKey, senderPublicKey);
+    const sharedSecret = await deriveSharedSecret(myReplyPrivateKey, partnerPublicKeyJwk);
+    
     
     messageFeed.innerHTML = ""; 
+    // Mesajları tarihe göre tekrar sırala (çünkü birleştirildiler)
+    convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
     for (const msg of convo.messages) {
-      const decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
+      
+      const isMyMessage = msg.sender_public_key === myReplyKeyString;
+      
+      let decryptedText = "[Could not decrypt]";
+      // Mesajı kimin gönderdiğine bakarak doğru anahtarla çözmeye çalış
+      
+      // Şifre Çözme İşlemi: Her zaman kendi private key'imizle, karşı tarafın public key'ini birleştirerek türettiğimiz sharedSecret'i kullanıyoruz.
+      decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
+      
+      
       const msgDiv = document.createElement("div");
-      msgDiv.className = "p-2 bg-gray-900 rounded-lg"; 
-      msgDiv.innerHTML = `
-        <p class="text-xs text-cyan-400">${convo.sender_nickname} (${new Date(msg.created_at).toLocaleTimeString()})</p>
-        <p class="text-white whitespace-pre-line break-words">${decryptedText}</p>
-      `;
+      
+      // Kendi mesajımızsa sağa yasla, farklı renk ver
+      if (isMyMessage) {
+        msgDiv.className = "flex justify-end";
+        msgDiv.innerHTML = `
+          <div class="max-w-xs p-3 bg-cyan-900 rounded-lg shadow-md">
+            <p class="text-xs text-gray-300 text-right">Me (${mySecret.nickname}) (${new Date(msg.created_at).toLocaleTimeString()})</p>
+            <p class="text-white whitespace-pre-line break-words text-right">${decryptedText}</p>
+          </div>
+        `;
+      } else {
+        // Karşı tarafın mesajıysa sola yasla
+        msgDiv.className = "flex justify-start";
+        msgDiv.innerHTML = `
+          <div class="max-w-xs p-3 bg-gray-700 rounded-lg shadow-md">
+            <p class="text-xs text-cyan-400">${convo.partner_nickname} (${new Date(msg.created_at).toLocaleTimeString()})</p>
+            <p class="text-white whitespace-pre-line break-words">${decryptedText}</p>
+          </div>
+        `;
+      }
+
       messageFeed.appendChild(msgDiv);
     }
-    
+    messageFeed.scrollTop = messageFeed.scrollHeight; // En alta kaydır
+
     replyArea.classList.remove("hidden");
     replyText.value = "";
     
+    // Cevap Gönderme
     replyBtn.onclick = async () => {
       const replyContent = replyText.value.trim();
       if (replyContent.length < 2) {
@@ -684,7 +833,7 @@ async function loadConversation(modal, convo) {
         return;
       }
       
-      lock(replyBtn, true);
+      lock(replyBtn, true, "Sending...");
       
       try {
         const { encrypted_content, iv } = await encryptChatMessage(replyContent, sharedSecret);
@@ -692,7 +841,7 @@ async function loadConversation(modal, convo) {
         const messagePayload = {
           secret_id: convo.secret_id, 
           sender_nickname: mySecret.nickname, 
-          sender_public_key: JSON.stringify(mySecret.public_key_for_replies), 
+          sender_public_key: myReplyKeyString, // GÖNDEREN BİZİZ
           encrypted_content: encrypted_content,
           iv: iv
         };
@@ -703,19 +852,24 @@ async function loadConversation(modal, convo) {
           
         if (msgError) throw new Error("Reply could not be sent: " + msgError.message);
         
+        // Kendi mesajımızı manuel olarak feed'e ekle
         const msgDiv = document.createElement("div");
-        msgDiv.className = "p-2 bg-cyan-900 rounded-lg"; 
+        msgDiv.className = "flex justify-end";
         msgDiv.innerHTML = `
-          <p class="text-xs text-gray-200">Me (${mySecret.nickname}) (now)</p>
-          <p class="text-white whitespace-pre-line break-words">${replyContent}</p>
+          <div class="max-w-xs p-3 bg-cyan-900 rounded-lg shadow-md">
+            <p class="text-xs text-gray-300 text-right">Me (${mySecret.nickname}) (now)</p>
+            <p class="text-white whitespace-pre-line break-words text-right">${replyContent}</p>
+          </div>
         `;
         messageFeed.appendChild(msgDiv);
+        messageFeed.scrollTop = messageFeed.scrollHeight; // En alta kaydır
+        
         replyText.value = "";
         
       } catch (e) {
         toast("Error sending reply: " + e.message, "error");
       } finally {
-        lock(replyBtn, false);
+        lock(replyBtn, false, "Send");
       }
     };
     
@@ -910,7 +1064,7 @@ document.body.addEventListener("click", (e) => {
 });
 
 
-// ========== SAYFA YÜKLENİNCE (AŞAMA 2) ==========
+// ========== SAYFA YÜKLENİNCE (AŞAMA 3) ==========
 window.addEventListener("DOMContentLoaded", () => {
   // Butonları bağla
   sendBtn.addEventListener("click", submitSecret);
