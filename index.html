@@ -3,60 +3,85 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>onescrt - anonymous secrets</title>
+  <title>onescrt - anonymous secrets (New Era)</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-  <!-- Load Supabase first, then script.js -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script>
-    // Verify Supabase loaded
-    window.addEventListener('load', function() {
-      if (typeof supabase === 'undefined') {
-        console.error('❌ Supabase library failed to load!');
-      } else {
-        console.log('✅ Supabase library loaded successfully');
-      }
-    });
-  </script>
   <script defer src="script.js"></script>
   <style>
     body {
       background: linear-gradient(to bottom right, #0f172a, #1e293b);
     }
+    /* "Son Sırlar" kayan ekranı için */
+    #latest-secrets-feed {
+      -ms-overflow-style: none; /* IE ve Edge */
+      scrollbar-width: none; /* Firefox */
+    }
+    #latest-secrets-feed::-webkit-scrollbar {
+      display: none; /* Chrome, Safari ve Opera */
+    }
   </style>
 </head>
 <body class="text-white min-h-screen flex flex-col items-center justify-start px-4 pt-16 font-sans">
 
-  <button id="inboxBtn" class="fixed top-4 right-4 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 z-10 flex items-center gap-2">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-      <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0018 4H2a2 2 0 00-1.997 1.884z" />
-      <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-    </svg>
-    <span>Inbox</span>
-  </button>
+  <nav class="fixed top-4 right-4 z-10 flex gap-3">
+    <button id="backupBtn" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white font-semibold py-2 px-3 rounded-lg transition duration-300 flex items-center gap-2" title="Backup/Restore Keys">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+    </button>
+    <button id="inboxBtn" class="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 flex items-center gap-2">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0018 4H2a2 2 0 00-1.997 1.884z" /><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" /></svg>
+      <span>Inbox</span>
+      <div id="inbox-notification" class="w-3 h-3 bg-red-500 rounded-full border-2 border-gray-800 hidden"></div>
+    </button>
+  </nav>
+
   <div class="max-w-xl w-full text-center mb-8">
     <img src="logo.png" alt="onescrt logo" class="mx-auto mb-4 w-12 h-12">
     <h1 class="text-3xl font-bold mb-1">onescrt</h1>
-    <p class="text-sm text-gray-300">Where your secrets live... and breathe.</p>
+    <p class="text-sm text-gray-300">Share your secrets. Anonymously.</p>
   </div>
 
   <div class="bg-gray-900 p-6 rounded-xl w-full max-w-md shadow-xl mb-6">
     <h2 class="text-lg font-semibold mb-3">Share a Secret</h2>
     <textarea id="secretInput" rows="4" class="w-full p-3 rounded bg-gray-800 border border-gray-700 text-white placeholder-gray-400" placeholder="Type your secret... (min 30 characters)"></textarea>
+    
+    <div class="mt-4">
+      <label for="secretType" class="text-sm text-gray-300">Select Secret Type:</label>
+      <select id="secretType" class="w-full p-2 mt-1 rounded bg-gray-800 border border-gray-700 text-white">
+        <option value="private">Private (Recommended)</option>
+        <option value="public">Public (Visible to all)</option>
+      </select>
+      <p id="secret-warning-private" class="text-xs text-cyan-400 mt-1">
+        Your secret will be shared anonymously. Only random users can get it.
+      </p>
+      <p id="secret-warning-public" class="text-xs text-rose-400 mt-1 hidden">
+        Warning: Your secret will be visible to everyone on the "Latest Secrets" feed.
+      </p>
+    </div>
+
     <div class="flex justify-between mt-4">
       <button id="sendBtn" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2 px-4 rounded transition duration-300">Submit Secret</button>
-      <button id="fetchBtn" disabled class="bg-gray-600 text-white font-semibold py-2 px-4 rounded opacity-50 cursor-not-allowed transition duration-300">Get a Random Secret</button>
+      <button id="fetchBtn" disabled class="bg-gray-600 text-white font-semibold py-2 px-4 rounded opacity-50 cursor-not-allowed transition duration-300">Get a Private Secret</button>
     </div>
-    <p id="sendMsg" class="text-green-400 text-sm mt-3 hidden">✅ Secret submitted. Now you can get one.</p>
+    <p id="sendMsg" class="text-green-400 text-sm mt-3 hidden">✅ Secret submitted. You can now get a private secret.</p>
+  </div>
+
+  <div class="w-full max-w-md mb-8">
+    <h3 class="text-lg font-semibold mb-3 text-cyan-300">Latest Public Secrets</h3>
+    <div id="latest-secrets-feed" class="w-full h-48 bg-gray-900 rounded-xl p-4 overflow-y-auto space-y-3">
+      <p id="feed-loading" class="text-gray-400">Loading feed...</p>
+    </div>
   </div>
 
   <div class="bg-gray-900 p-5 rounded-xl w-full max-w-md shadow-md mb-8">
-    <h3 class="text-sm text-rose-300 font-semibold mb-2">📘 How It Works</h3>
+    <h3 class="text-sm text-rose-300 font-semibold mb-2">📘 How It Works (New)</h3>
     <ul class="text-sm text-gray-300 list-decimal list-inside space-y-1 text-left">
-      <li>You must submit a real secret (min 30 chars).</li>
-      <li>After submission, you'll receive one from another user.</li>
-      <li>You can anonymously reply (E2E Encrypted) to the secret you receive.</li>
-      <li>You can check your Inbox for replies to your secret.</li>
-      <li>All interactions are anonymous. No accounts. No tracking.</li>
+      <li>Submit a secret. You can choose "Public" or "Private".</li>
+      <li>**Public Secrets** are visible to all on the "Latest Secrets" feed.</li>
+      <li>**Private Secrets** are only shown to random users via the "Get" button.</li>
+      <li>Admin **cannot** see who sent any secret (no client_id).</li>
+      <li>You can anonymously reply (E2E Encrypted) to any secret you receive.</li>
+      <li>Check your "Inbox" for replies to your secrets.</li>
+      <li>**CRITICAL:** Use the "Backup" (lock icon) button. If you clear your browser, you lose your keys and all your replies forever.</li>
     </ul>
   </div>
 
@@ -65,4 +90,3 @@
   </footer>
 </body>
 </html>
-
