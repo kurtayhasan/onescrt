@@ -761,6 +761,11 @@ async function showInboxModal() {
     }
 
 
+    // KRİTİK DÜZELTME: showInboxModal FONKSİYONUNDA DEĞİŞİKLİK
+// Sadece aşağıdaki döngü içindeki 'displayNickname' atamasını bulun ve değiştirin.
+
+// ... (showInboxModal fonksiyonu içinde, convoKey döngüsünün sonunda)
+
     for (const convoKey in uniqueConversations) {
         const convo = uniqueConversations[convoKey];
         convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -770,23 +775,21 @@ async function showInboxModal() {
         const myReplyKeyString = JSON.stringify(targetSecret.public_key_for_replies);
         
         const partnerPublicKeyJwk = JSON.parse(convo.partner_public_key);
-        const isCurrentlyBlocked = isBlocked(partnerPublicKeyJwk); // Engellenmiş mi?
+        const isCurrentlyBlocked = isBlocked(partnerPublicKeyJwk);
         
-        const isMyLastMessage = latestMsg.sender_public_key === myReplyKeyString;
+        // Hata Düzeltmesi: Her zaman sohbetin karşı tarafını göster.
+        let displayNickname = convo.partner_nickname; 
         
-        // Hata 2 Düzeltmesi: Eğer son mesaj benden gelmişse bile, konuşma başlığı karşı tarafın nicki olmalı.
-        let displayNickname = isMyLastMessage ? convo.partner_nickname : latestMsg.sender_nickname;
-        
+        // Eğer partner_nickname hala "You" ise, bunu mesajı atan kişinin nick'iyle değiştir.
+        if (displayNickname === "You") {
+            displayNickname = latestMsg.sender_nickname;
+        }
+
         // Engellenmişse nick'i gizle
         if (isCurrentlyBlocked) {
             displayNickname = "[BLOCKED USER]";
-        } else if (displayNickname === targetSecret.nickname) {
-            // Bu durum, karşı tarafın nicki ile benim secret nickim aynı olduğunda olur. 
-            // Bu mantık karışıklığını önlemek için her zaman partner nicki gösterilir.
-            displayNickname = convo.partner_nickname;
         }
         
-
         const div = document.createElement("div");
         div.className = "p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-700";
         div.innerHTML = `
@@ -794,6 +797,7 @@ async function showInboxModal() {
             <div class="text-xs text-gray-400">${convo.messages.length} message(s)</div>
         `;
         
+// ... (geri kalan kod aynı)    
         div.addEventListener("click", async () => {
             Array.from(convoListEl.children).forEach(child => child.classList.remove('bg-cyan-900'));
             div.classList.add('bg-cyan-900');
