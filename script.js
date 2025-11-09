@@ -299,10 +299,11 @@ async function loadLatestSecretsFeed() {
     
     // 2. Tüm Tepkileri VIEW'den çek
     const secretIds = secrets.map(s => s.id);
+    // Vibe'ı çekmek için yeni oluşturduğumuz VIEW'ı (vibe_counts) kullanıyoruz
     const { data: vibesData, error: vibesError } = await supabaseClient
-      .from('vibe_counts') // ARTIK DÜZELTİLMİŞ VIEW'I SORGULUYORUZ
+      .from('vibe_counts') 
       .select('secret_id, vibe_type, count')
-      .in('secret_id', secretIds); // Tepki sayısı 1000'den az olduğu için limit kaldırıldı.
+      .in('secret_id', secretIds);
 
     if (vibesError) console.warn("Could not load vibes:", vibesError.message);
     
@@ -357,16 +358,20 @@ function renderVibeButton(secretId, vibeType, emoji, count) {
             data-vibe-type="${vibeType}" 
             class="vibe-btn text-xs bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded-full transition duration-150 flex items-center gap-1"
             title="React with ${emoji}">
-            ${emoji} <span class="vibe-count">${count}</span>
+            ${emoji}<span class="vibe-count">${count}</span>
         </button>
     `;
 }
 
-// YENİ: Tepki Gönderme İşlemi (VIBES) (409 Hata Yönetimi İçin Düzeltildi)
+// YENİ: Tepki Gönderme İşlemi (VIBES) (TOAST hatası düzeltildi)
 async function sendVibe(secretId, vibeType, button) {
     const db = getLocalDatabase();
     
     lock(button, true);
+    
+    // Emoji bilgisini al (VIBE TİPİNE GÖRE EMOJİ HARİTASI)
+    const emojiMap = { 'love': '❤️', 'shock': '🤯', 'funny': '😂' };
+    const emoji = emojiMap[vibeType] || '👍'; 
 
     try {
         const { error } = await supabaseClient
@@ -393,14 +398,14 @@ async function sendVibe(secretId, vibeType, button) {
         const countSpan = button.querySelector('.vibe-count');
         countSpan.textContent = parseInt(countSpan.textContent) + 1;
         
-        toast(`Vibe ${button.querySelector('span').previousSibling.textContent} sent!`, "success");
+        // HATA DÜZELTME: Toast mesajı artık güvenli bir şekilde emoji'yi kullanıyor.
+        toast(`Vibe ${emoji} sent!`, "success");
         button.disabled = true;
         button.classList.add("opacity-50", "cursor-not-allowed");
         
     } catch (e) {
         toast("Error sending vibe: " + e.message, "error");
     } finally {
-        // Hata olmadıysa ama UNIQUE kısıtlaması yüzünden kilitlenmediyse kilitlenir
         if (!button.disabled) lock(button, false);
     }
 }
