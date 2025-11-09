@@ -270,18 +270,25 @@ async function submitSecret() {
   
   lock(sendBtn, true, "Calculating Proof-of-Work (Spam Guard)...");
   
-  try {
+ // ... submitSecret fonksiyonu içinde
+try {
     const nickname = generateNickname();
     const replyKeyPair = await generateE2EEKeyPair(); 
     
+    // CRITICAL FIX: is_public boolean değerini küçük harfli string'e çevir.
+    const isPublicString = isPublic ? "true" : "false"; 
+    
     let payload = {
       nickname: nickname,
-      is_public: isPublic,
+      is_public: isPublicString, // ARTIK STRING OLARAK GÖNDERİLİYOR
       public_key_for_replies: JSON.stringify(replyKeyPair.publicKeyJwk),
       content: content,
       // YENİ: KENDİ KENDİNİ İMHA SÜRESİ
       expires_at: isPublic ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() : null
     };
+    
+    // 1. Proof-of-Work Hesapla
+    // ... (geri kalan kod aynı)
     
     // 1. Proof-of-Work Hesapla
     const { nonce, hash } = await solveProofOfWork(payload);
