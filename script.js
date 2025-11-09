@@ -19,7 +19,6 @@ const feedLoading = document.getElementById("feed-loading");
 const inboxNotification = document.getElementById("inbox-notification");
 
 // ========== RASTGELE NICKNAME ÜRETECİ ==========
-// (Çakışmayı önlemek için basit + rastgele 4 haneli kod)
 const ADJECTIVES = ["Mavi", "Kızıl", "Gizli", "Sessiz", "Hızlı", "Uykulu", "Cesur", "Kurnaz", "Mutlu", "Yorgun"];
 const NOUNS = ["Tilki", "Kaplan", "Panda", "Gezgin", "Sincap", "Casus", "Dağcı", "Yolcu", "Düşünür", "Balık"];
 function generateNickname() {
@@ -30,7 +29,6 @@ function generateNickname() {
 }
 
 // ========== KRİPTO (E2EE) YARDIMCI FONKSİYONLARI ==========
-// (Web Crypto API fonksiyonları)
 function base64ToArrayBuffer(base64) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -45,7 +43,6 @@ function arrayBufferToBase64(buffer) {
   for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
   return btoa(binary);
 }
-// YENİ: E2EE Anahtar Çifti (Key Pair) Üretir (ECDH)
 async function generateE2EEKeyPair() {
   const keyPair = await crypto.subtle.generateKey(
     { name: "ECDH", namedCurve: "P-256" },
@@ -57,7 +54,6 @@ async function generateE2EEKeyPair() {
   return { publicKeyJwk, privateKeyJwk };
 }
 
-// --- Sohbet (ECDH + AES-GCM) Kripto Fonksiyonları ---
 async function importPrivateKey(jwk) {
   return await crypto.subtle.importKey("jwk", jwk, { name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
 }
@@ -74,7 +70,6 @@ async function deriveSharedSecret(privateKey, publicKeyJwk) {
     ["encrypt", "decrypt"]
   );
 }
-// Sohbet Mesajı Şifreleme
 async function encryptChatMessage(text, sharedSecret) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encodedText = new TextEncoder().encode(text);
@@ -88,7 +83,6 @@ async function encryptChatMessage(text, sharedSecret) {
     iv: arrayBufferToBase64(iv)
   };
 }
-// Sohbet Mesajı Şifre Çözme
 async function decryptChatMessage(encryptedBase64, ivBase64, sharedSecret) {
    try {
     const iv = base64ToArrayBuffer(ivBase64);
@@ -106,18 +100,6 @@ async function decryptChatMessage(encryptedBase64, ivBase64, sharedSecret) {
 }
 
 // ========== YENİ: LOCALSTORAGE (Veritabanı) YÖNETİMİ ==========
-// (Artık tüm "kimliğimiz" burası)
-
-// Anahtar: "onescrt_keys"
-// Değer: {
-//   my_secrets: [
-//     { secret_id: 123, nickname: "Mavi Tilki", public_key_for_replies: {...}, private_key_for_replies: {...} }
-//   ],
-//   blocked_keys: [ "..." ],
-//   viewer_id: "anon-uuid-...",
-//   last_inbox_check: "timestamp"
-// }
-
 function getLocalDatabase() {
   let db = localStorage.getItem("onescrt_keys");
   if (!db) {
@@ -136,7 +118,6 @@ function saveLocalDatabase(db) {
   localStorage.setItem("onescrt_keys", JSON.stringify(db));
 }
 
-// YENİ: Gönderdiğimiz bir sırrın anahtarlarını kaydeder
 function saveMySecretKeys(secret_id, nickname, replyKeyPair) {
   const db = getLocalDatabase();
   db.my_secrets.push({
@@ -189,45 +170,35 @@ async function submitSecret() {
   }
   
   lock(sendBtn, true);
-  lock(fetchBtn, true); // Gönderme sırasında her şeyi kilitle
+  lock(fetchBtn, true); 
   
   try {
     const nickname = generateNickname();
-    const replyKeyPair = await generateE2EEKeyPair(); // (Cevaplar için)
-    
-    // UZLAŞMA (AŞAMA 1):
-    // Admin'in sırrı okuyamaması ("content_encrypted") özelliği,
-    // "Get a Random Private Secret" ile çeliştiği için AŞAMA 2'ye ertelendi.
-    // ŞİMDİLİK TÜM SIRLARIN İÇERİĞİ 'content' SÜTUNUNA AÇIK YAZILACAK.
-    // Ancak 'client_id' olmadığı için admin YİNE DE KİMİN GÖNDERDİĞİNİ BİLMEYECEK.
+    const replyKeyPair = await generateE2EEKeyPair(); 
     
     let payload = {
       nickname: nickname,
       is_public: isPublic,
       public_key_for_replies: JSON.stringify(replyKeyPair.publicKeyJwk),
-      content: content // ŞİMDİLİK TÜM İÇERİK BURADA
+      content: content 
     };
     
-    // 1. Sırrı veritabanına gönder
     const { data, error } = await supabaseClient
       .from('secrets')
       .insert(payload)
-      .select('id') // Gönderdiğimiz sırrın ID'sini geri al
+      .select('id') 
       .single();
         
     if (error) throw new Error(error.message);
     
-    // 2. Kendi anahtarlarımızı (sır ID'si ile eşleştirip) local'e kaydet
     saveMySecretKeys(data.id, nickname, replyKeyPair);
     
-    // 3. Arayüzü güncelle
     secretInput.value = "";
     sendMsg.classList.remove("hidden");
-    localStorage.setItem("hasSentSecret", "true"); // (fetchBtn'i açmak için)
+    localStorage.setItem("hasSentSecret", "true"); 
     updateBtnStates();
     toast("✅ Secret submitted! Your keys are saved locally.", "success");
     
-    // 4. "Latest Secrets" (Public) feed'ini yenile (eğer public gönderdiysek)
     if (isPublic) {
       loadLatestSecretsFeed(); 
     }
@@ -236,22 +207,22 @@ async function submitSecret() {
     toast("Error submitting secret: " + e.message, "error");
   } finally {
     lock(sendBtn, false);
-    updateBtnStates(); // (fetchBtn'i aç/kapa)
+    updateBtnStates();
   }
 }
 
 // YENİ: "Latest Secrets" (Public) Feed'ini Yükler
 async function loadLatestSecretsFeed() {
   feedLoading.classList.remove("hidden");
-  feed.innerHTML = ""; // Temizle
+  feed.innerHTML = "";
   
   try {
     const { data, error } = await supabaseClient
       .from('secrets')
       .select('id, nickname, content, public_key_for_replies')
-      .eq('is_public', true) // Sadece Public olanları çek
+      .eq('is_public', true) 
       .order('created_at', { ascending: false })
-      .limit(20); // Son 20
+      .limit(20);
       
     if (error) throw new Error(error.message);
     
@@ -271,7 +242,7 @@ async function loadLatestSecretsFeed() {
         </p>
         <div class="flex justify-between items-center mt-2">
           <span class="text-xs text-cyan-400 font-semibold">${secret.nickname}</span>
-          <button data-secret-id="${secret.id}" data-nickname="${secret.nickname}" data-content="${escape(secret.content)}" data-public-key='${secret.public_key_for_replies}' class="reply-to-public-btn text-xs bg-cyan-600 hover:bg-cyan-700 text-white py-1 px-2 rounded">
+          <button data-secret-id="${secret.id}" data-nickname="${secret.nickname}" data-content="${encodeURIComponent(secret.content)}" data-public-key='${secret.public_key_for_replies}' class="reply-to-public-btn text-xs bg-cyan-600 hover:bg-cyan-700 text-white py-1 px-2 rounded">
             Reply
           </button>
         </div>
@@ -291,7 +262,6 @@ async function fetchPrivateSecret() {
   const db = getLocalDatabase();
   
   try {
-    // 1. Kendi gördüğümüz private sırların ID'lerini çek
     const { data: seenData, error: seenError } = await supabaseClient
       .from('secret_views')
       .select('secret_id')
@@ -300,16 +270,14 @@ async function fetchPrivateSecret() {
     if (seenError) throw new Error("Could not fetch viewed secrets: " + seenError.message);
     const seenIds = seenData.map(r => r.secret_id);
     
-    // 2. Kendi sırlarımızın ID'lerini çek (local'den)
     const mySecretIds = db.my_secrets.map(s => s.secret_id);
     
-    // 3. Filtrelenmiş sırrı çek
     const { data, error } = await supabaseClient
       .from('secrets')
       .select('id, nickname, content, public_key_for_replies')
-      .eq('is_public', false) // Sadece Private olanları çek
-      .not('id', 'in', `(${[...mySecretIds, ...seenIds].join(',') || 0})`) // Kendi sırlarımız VE gördüklerimiz hariç
-      .limit(50) // (Havuz)
+      .eq('is_public', false) 
+      .not('id', 'in', `(${[...mySecretIds, ...seenIds].join(',') || 0})`) 
+      .limit(50) 
       .range(0, 49);
 
     if (error) throw new Error("Fetch failed: " + error.message);
@@ -319,14 +287,12 @@ async function fetchPrivateSecret() {
     if (unseen.length > 0) {
       const randomSecret = unseen[Math.floor(Math.random() * unseen.length)];
       
-      // 4. Görüldü olarak işaretle
       const { error: viewError } = await supabaseClient
         .from('secret_views')
         .insert({ secret_id: randomSecret.id, viewer_id: db.viewer_id });
         
-      if (viewError) console.warn("Could not mark secret as viewed:", viewError.message);
+      if (viewError) console.warn("Could not mark as seen:", viewError.message);
 
-      // 5. Modalı göster
       showSecretModal(randomSecret, "private");
       
       localStorage.setItem("hasFetchedSecret", "true");
@@ -334,7 +300,7 @@ async function fetchPrivateSecret() {
       
     } else {
       toast("No new private secrets found to fetch.", "error");
-      lock(fetchBtn, false); // Tekrar denemesine izin ver
+      lock(fetchBtn, false); 
     }
     
   } catch (e) {
@@ -371,14 +337,12 @@ function showSecretModal(secretObject, type = "public") {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  // Modal butonları
   modal.querySelector("#closeBtn").addEventListener("click", () => overlay.remove());
   modal.querySelector("#copyBtn").addEventListener("click", async () => {
     try { await navigator.clipboard.writeText(content); toast("Copied!", "success"); } 
     catch { toast("Failed to copy", "error"); }
   });
   
-  // CEVAP GÖNDERME (ÇİFT YÖNLÜ SOHBET ALTYAPISI)
   modal.querySelector("#replyBtn").addEventListener("click", async () => {
     const replyContent = modal.querySelector("#replyTextarea").value.trim();
     if (replyContent.length < 5) {
@@ -391,30 +355,24 @@ function showSecretModal(secretObject, type = "public") {
     replyBtn.textContent = "Encrypting... Generating keys...";
     
     try {
-      // 1. Cevap verebilmek için BİZ de bir anahtar çifti üretmeliyiz
       const myReplyKeyPair = await generateE2EEKeyPair();
-      const myNickname = generateNickname(); // Bizim de bu sohbet için rastgele bir nick'imiz olmalı
+      const myNickname = generateNickname();
       
-      // 2. Alıcının (sır sahibinin) public key'ini al
       const recipientReplyKeyJwk = JSON.parse(public_key_for_replies);
       
-      // 3. Paylaşımlı bir gizli anahtar (shared secret) türet
       const myPrivateKey = await importPrivateKey(myReplyKeyPair.privateKeyJwk);
       const sharedSecret = await deriveSharedSecret(myPrivateKey, recipientReplyKeyJwk);
       
-      // 4. Mesajı bu paylaşımlı anahtarla şifrele
       const { encrypted_content, iv } = await encryptChatMessage(replyContent, sharedSecret);
       
-      // 5. Veritabanına göndereceğimiz paketi hazırla
       const messagePayload = {
         secret_id: secret_id,
         sender_nickname: myNickname,
-        sender_public_key: JSON.stringify(myReplyKeyPair.publicKeyJwk), // Sır sahibinin BİZE cevap atabilmesi için
+        sender_public_key: JSON.stringify(myReplyKeyPair.publicKeyJwk),
         encrypted_content: encrypted_content,
         iv: iv
       };
       
-      // 6. Mesajı gönder
       const { error: msgError } = await supabaseClient
         .from('messages')
         .insert(messagePayload);
@@ -425,7 +383,8 @@ function showSecretModal(secretObject, type = "public") {
       modal.querySelector("#replyTextarea").value = "";
       
     } catch(e) {
-      toast("Error sending reply: "D + e.message, "error");
+      // DÜZELTİLMİŞ HATA MESAJI BURADA!
+      toast("Error sending reply: " + e.message, "error"); 
     } finally {
       lock(replyBtn, false);
       replyBtn.textContent = "Send Reply (E2E Encrypted)";
@@ -443,7 +402,6 @@ async function showInboxModal() {
   }
   
   const overlay = document.createElement("div");
-  // ... (Modal HTML'i - Plan 8: Nicke göre gruplama)
   overlay.className = "fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4";
   overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
   
@@ -476,14 +434,12 @@ async function showInboxModal() {
   const loadingEl = modal.querySelector("#inbox-loading");
   
   try {
-    // 1. Kendi sırlarımızın ID'lerini al
     const mySecretIds = db.my_secrets.map(s => s.secret_id);
     if (mySecretIds.length === 0) {
       loadingEl.textContent = "No secrets found.";
       return;
     }
     
-    // 2. Bu sır ID'lerine gelen TÜM mesajları RPC ile çek
     const { data: messages, error } = await supabaseClient
       .rpc('get_my_messages_by_secret_ids', { secret_ids: mySecretIds });
       
@@ -495,11 +451,9 @@ async function showInboxModal() {
       return;
     }
     
-    // 3. Mesajları SOHBET bazında GÜVENLİCE grupla
-    // (Aynı 'sender_public_key' ve 'secret_id' = 1 sohbet)
     const conversations = {};
     for (const msg of messages) {
-      const convoId = `${msg.secret_id}:${msg.sender_public_key}`; // Biricik sohbet ID'si
+      const convoId = `${msg.secret_id}:${msg.sender_public_key}`; 
       
       if (!conversations[convoId]) {
         conversations[convoId] = {
@@ -512,10 +466,8 @@ async function showInboxModal() {
       conversations[convoId].messages.push(msg);
     }
 
-    // 4. Sohbet listesini (sol panel) doldur
     for (const convoId in conversations) {
       const convo = conversations[convoId];
-      // Son mesajın tarihine göre sırala (yeni olan üste)
       convo.messages.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       
       const div = document.createElement("div");
@@ -525,18 +477,14 @@ async function showInboxModal() {
         <div class="text-xs text-gray-400">${convo.messages.length} message(s)</div>
       `;
       
-      // Sohbet listesindeki bir öğeye tıklandığında...
       div.addEventListener("click", async () => {
-        // Diğerlerini "seçilmemiş" yap
         Array.from(convoListEl.children).forEach(child => child.classList.remove('bg-cyan-900'));
-        // Bunu "seçilmiş" yap
         div.classList.add('bg-cyan-900');
-        await loadConversation(modal, convo, myReplyKeyPair); // (ÇİFT YÖNLÜ SOHBET İÇİN DÜZENLENDİ)
+        await loadConversation(modal, convo);
       });
       convoListEl.appendChild(div);
     }
     
-    // 5. Bildirim noktasını kontrol et
     checkNotifications(messages, db);
 
   } catch (e) {
@@ -554,23 +502,18 @@ async function loadConversation(modal, convo) {
   messageFeed.innerHTML = `<p class="text-gray-400">Decrypting messages from ${convo.sender_nickname}...</p>`;
   
   try {
-    // 1. Bu sohbet için doğru local anahtarları bul
     const db = getLocalDatabase();
     const mySecret = db.my_secrets.find(s => s.secret_id === convo.secret_id);
     if (!mySecret) throw new Error("Local private key for this secret not found!");
     
-    // 2. Paylaşımlı gizli anahtarı (shared secret) türet
-    // (Bizim private key'imiz ve gönderenin public key'i ile)
     const myReplyPrivateKey = await importPrivateKey(mySecret.private_key_for_replies);
     const senderPublicKey = JSON.parse(convo.sender_public_key);
     const sharedSecret = await deriveSharedSecret(myReplyPrivateKey, senderPublicKey);
     
-    // 3. Mesajların şifresini çöz ve göster
-    messageFeed.innerHTML = ""; // Temizle
+    messageFeed.innerHTML = ""; 
     for (const msg of convo.messages) {
       const decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
       const msgDiv = document.createElement("div");
-      // (AŞAMA 2'de: 'my_reply' class'ı eklenerek sağa yaslanacak)
       msgDiv.className = "p-2 bg-gray-900 rounded-lg"; 
       msgDiv.innerHTML = `
         <p class="text-xs text-cyan-400">${convo.sender_nickname} (${new Date(msg.created_at).toLocaleTimeString()})</p>
@@ -579,7 +522,6 @@ async function loadConversation(modal, convo) {
       messageFeed.appendChild(msgDiv);
     }
     
-    // 4. "Bu sohbete cevap ver" alanını göster ve aktif et
     replyArea.classList.remove("hidden");
     replyText.value = "";
     
@@ -593,18 +535,12 @@ async function loadConversation(modal, convo) {
       lock(replyBtn, true);
       
       try {
-        // Çift Yönlü Sohbet için:
-        // Bu sefer, biz BİR MESAJ gönderiyoruz, SIRA DEĞİL.
-        // Ama altyapı aynı: Alıcının (sender_public_key) anahtarıyla şifrele.
-        // Gönderen (bizim) anahtarımız (myReplyPrivateKey)
-        // 'sharedSecret' zaten bu ikisi arasında türetilmişti.
-        
         const { encrypted_content, iv } = await encryptChatMessage(replyContent, sharedSecret);
 
         const messagePayload = {
-          secret_id: convo.secret_id, // Hangi sır üzerinden başladığını bilmeli
-          sender_nickname: mySecret.nickname, // Bu sefer GÖNDEREN BİZİZ
-          sender_public_key: JSON.stringify(mySecret.public_key_for_replies), // ALICININ BİZE CEVAP ATABİLMESİ İÇİN
+          secret_id: convo.secret_id, 
+          sender_nickname: mySecret.nickname, 
+          sender_public_key: JSON.stringify(mySecret.public_key_for_replies), 
           encrypted_content: encrypted_content,
           iv: iv
         };
@@ -615,9 +551,8 @@ async function loadConversation(modal, convo) {
           
         if (msgError) throw new Error("Reply could not be sent: " + msgError.message);
         
-        // Arayüze kendi mesajımızı manuel ekle
         const msgDiv = document.createElement("div");
-        msgDiv.className = "p-2 bg-cyan-900 rounded-lg"; // (Bizim mesajımız - farklı renk)
+        msgDiv.className = "p-2 bg-cyan-900 rounded-lg"; 
         msgDiv.innerHTML = `
           <p class="text-xs text-gray-200">Me (${mySecret.nickname}) (now)</p>
           <p class="text-white whitespace-pre-line break-words">${replyContent}</p>
@@ -642,11 +577,9 @@ function checkNotifications(allMessages, db) {
   const lastCheck = new Date(db.last_inbox_check);
   let hasNewMessage = false;
   
-  // Bize ait olmayan mesajları (yani bize gelenleri) bul
   const myPublicKeys = db.my_secrets.map(s => JSON.stringify(s.public_key_for_replies));
   
   for (const msg of allMessages) {
-    // Eğer mesajın gönderen anahtarı, bizim anahtarlarımızdan BİRİ DEĞİLSE, bu bize gelmiş bir mesajdır
     if (!myPublicKeys.includes(msg.sender_public_key)) {
       if (new Date(msg.created_at) > lastCheck) {
         hasNewMessage = true;
@@ -661,7 +594,6 @@ function checkNotifications(allMessages, db) {
     inboxNotification.classList.add("hidden");
   }
   
-  // Görüldü olarak işaretle (Modal açıldığında)
   db.last_inbox_check = new Date().toISOString();
   saveLocalDatabase(db);
 }
@@ -681,7 +613,6 @@ async function backupKeys() {
   }
   
   try {
-    // 1. Anahtarı paroladan türet (PBKDF2)
     const salt = crypto.getRandomValues(new Uint8Array(16));
     const keyMaterial = await crypto.subtle.importKey(
       "raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveKey"]
@@ -694,7 +625,6 @@ async function backupKeys() {
       ["encrypt"]
     );
     
-    // 2. Veritabanını (JSON string) şifrele
     const dbString = JSON.stringify(db);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encryptedData = await crypto.subtle.encrypt(
@@ -703,7 +633,6 @@ async function backupKeys() {
       new TextEncoder().encode(dbString)
     );
     
-    // 3. İndirilebilir dosyayı oluştur
     const backupPayload = {
       salt: arrayBufferToBase64(salt),
       iv: arrayBufferToBase64(iv),
@@ -745,7 +674,6 @@ async function restoreKeys() {
       const iv = base64ToArrayBuffer(backupPayload.iv);
       const data = base64ToArrayBuffer(backupPayload.data);
       
-      // 1. Anahtarı paroladan türet
       const keyMaterial = await crypto.subtle.importKey(
         "raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveKey"]
       );
@@ -757,16 +685,14 @@ async function restoreKeys() {
         ["decrypt"]
       );
       
-      // 2. Verinin şifresini çöz
       const decryptedData = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: iv },
         aesKey,
         data
       );
       
-      // 3. Veritabanını local'e kaydet
       const dbString = new TextDecoder().decode(decryptedData);
-      JSON.parse(dbString); // (Geçerli JSON mu diye kontrol et)
+      JSON.parse(dbString);
       
       if (confirm("Restore successful. This will OVERWRITE your current keys. Continue?")) {
         localStorage.setItem("onescrt_keys", dbString);
@@ -800,12 +726,12 @@ function updateBtnStates() {
   const hasFetched = localStorage.getItem("hasFetchedSecret") === "true";
 
   if (hasFetched) {
-    lock(fetchBtn, true); // Sadece bir private sır alabilir (şimdilik)
+    lock(fetchBtn, true); 
   } else {
-    lock(fetchBtn, !hasSent); // Gönderdiyse aç
+    lock(fetchBtn, !hasSent); 
   }
   
-  lock(sendBtn, false); // Gönderme her zaman açık
+  lock(sendBtn, false); 
 }
 
 // YENİ: Feed'deki "Reply" butonlarına tıklama (Olay delegasyonu)
@@ -814,7 +740,7 @@ document.body.addEventListener("click", (e) => {
     const secret = {
       id: e.target.dataset.secretId,
       nickname: e.target.dataset.nickname,
-      content: unescape(e.target.dataset.content), // 'escape' ile saklanan içeriği geri çöz
+      content: decodeURIComponent(e.target.dataset.content), // DÜZELTME: decodeURIComponent kullanıldı
       public_key_for_replies: e.target.dataset.publicKey
     };
     showSecretModal(secret, "public");
