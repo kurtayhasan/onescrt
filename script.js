@@ -18,9 +18,9 @@ const feed = document.getElementById("latest-secrets-feed");
 const feedLoading = document.getElementById("feed-loading");
 const inboxNotification = document.getElementById("inbox-notification");
 
-// ========== RASTGELE NICKNAME ÜRETECİ ==========
-const ADJECTIVES = ["Mavi", "Kızıl", "Gizli", "Sessiz", "Hızlı", "Uykulu", "Cesur", "Kurnaz", "Mutlu", "Yorgun"];
-const NOUNS = ["Tilki", "Kaplan", "Panda", "Gezgin", "Sincap", "Casus", "Dağcı", "Yolcu", "Düşünür", "Balık"];
+// ========== RASTGELE NICKNAME ÜRETECİ (İNGİLİZCE) ==========
+const ADJECTIVES = ["Blue", "Red", "Secret", "Silent", "Swift", "Sleepy", "Brave", "Cunning", "Happy", "Tired", "Mystic", "Clever"];
+const NOUNS = ["Fox", "Tiger", "Panda", "Wanderer", "Squirrel", "Spy", "Climber", "Traveler", "Thinker", "Fisher", "Ghost", "Wizard"];
 function generateNickname() {
   const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
@@ -276,14 +276,13 @@ async function submitSecret() {
   }
 }
 
-// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (VIBES EKLENDİ)
+// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (VIBES EKLENDİ VE HATALAR DÜZELTİLDİ)
 async function loadLatestSecretsFeed() {
   feedLoading.classList.remove("hidden");
   feed.innerHTML = "";
   
   try {
-    // 1. Sırları ve Tepki Sayılarını Çek
-    // (JOIN veya ayrı RPC çağrısı yapmamız gerekiyor)
+    // 1. Sırları Çek
     const { data: secrets, error: secretsError } = await supabaseClient
       .from('secrets')
       .select('id, nickname, content, public_key_for_replies')
@@ -298,13 +297,12 @@ async function loadLatestSecretsFeed() {
       return;
     }
     
-    // 2. Tüm Tepkileri tek seferde çek (Performans için)
+    // 2. Tüm Tepkileri VIEW'den çek
     const secretIds = secrets.map(s => s.id);
     const { data: vibesData, error: vibesError } = await supabaseClient
-      .from('secret_vibes')
+      .from('vibe_counts') // ARTIK DÜZELTİLMİŞ VIEW'I SORGULUYORUZ
       .select('secret_id, vibe_type, count')
-      .in('secret_id', secretIds)
-      .limit(1000); // 1000'e kadar tepki çeker (yeterli)
+      .in('secret_id', secretIds); // Tepki sayısı 1000'den az olduğu için limit kaldırıldı.
 
     if (vibesError) console.warn("Could not load vibes:", vibesError.message);
     
@@ -321,7 +319,6 @@ async function loadLatestSecretsFeed() {
     
     secrets.forEach(secret => {
       const currentVibes = vibesMap[secret.id] || {};
-      const totalVibes = Object.values(currentVibes).reduce((sum, count) => sum + count, 0);
       
       const div = document.createElement("div");
       div.className = "bg-gray-800 p-3 rounded-lg";
@@ -365,11 +362,10 @@ function renderVibeButton(secretId, vibeType, emoji, count) {
     `;
 }
 
-// YENİ: Tepki Gönderme İşlemi (VIBES)
+// YENİ: Tepki Gönderme İşlemi (VIBES) (409 Hata Yönetimi İçin Düzeltildi)
 async function sendVibe(secretId, vibeType, button) {
     const db = getLocalDatabase();
     
-    // Tekrar tıklamayı engelle
     lock(button, true);
 
     try {
@@ -377,14 +373,17 @@ async function sendVibe(secretId, vibeType, button) {
             .from('secret_vibes')
             .insert({
                 secret_id: secretId,
-                viewer_id: db.viewer_id, // Local anonim ID'miz
+                viewer_id: db.viewer_id, 
                 vibe_type: vibeType
             });
             
         if (error) {
-            // Eğer HATA bir "tekrarlanan giriş" (yani zaten tepki vermiş) ise
-            if (error.code === '23505') { // PostgreSQL Unique Violation kodu
+            // Eğer HATA bir "tekrarlanan giriş" (409 hatası) ise
+            if (error.code === '23505') { 
                  toast("You have already reacted to this secret.", "info");
+                 // Butonu kilitle
+                 button.disabled = true;
+                 button.classList.add("opacity-50", "cursor-not-allowed");
                  return;
             }
             throw new Error(error.message);
@@ -395,17 +394,19 @@ async function sendVibe(secretId, vibeType, button) {
         countSpan.textContent = parseInt(countSpan.textContent) + 1;
         
         toast(`Vibe ${button.querySelector('span').previousSibling.textContent} sent!`, "success");
+        button.disabled = true;
+        button.classList.add("opacity-50", "cursor-not-allowed");
         
     } catch (e) {
         toast("Error sending vibe: " + e.message, "error");
     } finally {
-        lock(button, false); // İşlem tamamlandı, butonu tekrar aç (başarısız olduysa tekrar dener)
-        if (button.textContent.includes('reacted')) lock(button, true); // Zaten tepki verdiyse kilitli kalır
+        // Hata olmadıysa ama UNIQUE kısıtlaması yüzünden kilitlenmediyse kilitlenir
+        if (!button.disabled) lock(button, false);
     }
 }
 
 
-// YENİ: "Get a Private Secret" (Eski fetchBtn)
+// YENİ: "Get a Private Secret" (Değişiklik Yok)
 async function fetchPrivateSecret() {
   lock(fetchBtn, true);
   const db = getLocalDatabase();
@@ -460,7 +461,7 @@ async function fetchPrivateSecret() {
 
 // YENİ: Modal (Hem Public hem Private için) (Değişiklik Yok)
 function showSecretModal(secretObject, type = "public") {
-  // ... (Kod aynı kalır)
+  
   const { id: secret_id, nickname, content, public_key_for_replies } = secretObject;
   const overlay = document.createElement("div");
   overlay.className = "fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4";
@@ -640,7 +641,6 @@ async function showInboxModal() {
 
 // YENİ: Seçilen Sohbeti Yükler (Değişiklik Yok)
 async function loadConversation(modal, convo) {
-  // ... (Kod aynı kalır)
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
   const replyBtn = modal.querySelector("#inboxReplyBtn");
