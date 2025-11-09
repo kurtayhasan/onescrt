@@ -458,14 +458,33 @@ async function sendVibe(secretId, vibeType, button) {
         button.disabled = true;
         button.classList.add("opacity-50", "cursor-not-allowed");
         
+   // KRİTİK DÜZELTME: sendVibe FONKSİYONUNDA DEĞİŞİKLİK
+// (Sadece 'finally' bloğunu değiştirin)
+
+// ... (sendVibe fonksiyonu içinde)
+
     } catch (e) {
         toast("Error sending vibe: " + e.message, "error");
+        // Hata durumunda butonu hemen eski haline getir
+        lock(button, false, `${emoji} ${countSpan.textContent}`); 
     } finally {
-        // Hata varsa butonu aç, yoksa zaten disabled
-        if (!button.disabled) lock(button, false, emoji); 
+        // İşlem başarılıysa, buton zaten disabled/locked kalmalı
+        // Hata varsa yukarıda açıldı. Buraya sadece güvenlik ekliyoruz.
+        if (!button.disabled) {
+            lock(button, false, `${emoji} ${countSpan.textContent}`); 
+        }
     }
 }
 
+// lock fonksiyonunun kendisinde de küçük bir düzenleme yapalım (Aynı kalmalıydı ama kontrol edelim):
+function lock(btn, state = true, msg = null) {
+  if (!btn) return;
+  btn.disabled = state;
+  btn.classList.toggle("opacity-50", state);
+  btn.classList.toggle("cursor-not-allowed", state);
+  if (msg) btn.textContent = msg;
+  else btn.textContent = state ? "Processing..." : "Submit Secret";
+}
 
 // YENİ: "Get a Private Secret" (sessionStorage'a geçildi)
 async function fetchPrivateSecret() {
