@@ -324,7 +324,7 @@ async function submitSecret() {
   }
 }
 
-// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (POPÜLER SIRLAR EKLENDİ)
+// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (Aynı Kalır)
 async function loadLatestSecretsFeed() {
   feedLoading.classList.remove("hidden");
   feed.innerHTML = "";
@@ -409,7 +409,7 @@ async function loadLatestSecretsFeed() {
   }
 }
 
-// YENİ: Tepki Butonu HTML'i (Değişiklik Yok)
+// YENİ: Tepki Butonu HTML'i (Aynı Kalır)
 function renderVibeButton(secretId, vibeType, emoji, count) {
     return `
         <button 
@@ -422,7 +422,7 @@ function renderVibeButton(secretId, vibeType, emoji, count) {
     `;
 }
 
-// YENİ: Tepki Gönderme İşlemi (Hata Düzeltmeleri Dahil)
+// YENİ: Tepki Gönderme İşlemi (VIBE HATASI ÇÖZÜMÜ)
 async function sendVibe(secretId, vibeType, button) {
     const db = getLocalDatabase();
     const countSpan = button.querySelector('.vibe-count');
@@ -471,7 +471,7 @@ async function sendVibe(secretId, vibeType, button) {
 }
 
 
-// YENİ: "Get a Private Secret" (sessionStorage'a geçildi)
+// YENİ: "Get a Private Secret" (Aynı Kalır)
 async function fetchPrivateSecret() {
   lock(fetchBtn, true, "Fetching...");
   const db = getLocalDatabase();
@@ -525,7 +525,7 @@ async function fetchPrivateSecret() {
   }
 }
 
-// YENİ: Modal (ENGELLEME EKLENDİ)
+// YENİ: Modal (ENGELLEME EKLENDİ - Aynı Kalır)
 function showSecretModal(secretObject, type = "public") {
   
   const { id: secret_id, nickname, content, public_key_for_replies } = secretObject;
@@ -956,6 +956,746 @@ function showSecretModal(secretObject, type = "public") {
   });
 }
 
+// YENİ: "Get a Private Secret" (Aynı Kalır)
+async function fetchPrivateSecret() {
+  lock(fetchBtn, true, "Fetching...");
+  const db = getLocalDatabase();
+  
+  try {
+    const { data: seenData, error: seenError } = await supabaseClient
+      .from('secret_views')
+      .select('secret_id')
+      .eq('viewer_id', db.viewer_id);
+      
+    if (seenError) throw new Error("Could not fetch viewed secrets: " + seenError.message);
+    const seenIds = seenData.map(r => r.secret_id);
+    
+    const mySecretIds = db.my_secrets.map(s => s.secret_id);
+    
+    const { data, error } = await supabaseClient
+      .from('secrets')
+      .select('id, nickname, content, public_key_for_replies')
+      .eq('is_public', false) 
+      .not('id', 'in', `(${[...mySecretIds, ...seenIds].join(',') || 0})`) 
+      .limit(50) 
+      .range(0, 49);
+
+    if (error) throw new Error("Fetch failed: " + error.message);
+
+    const unseen = data.filter(item => !seenIds.includes(item.id) && !mySecretIds.includes(item.id));
+    
+    if (unseen.length > 0) {
+      const randomSecret = unseen[Math.floor(Math.random() * unseen.length)];
+      
+      const { error: viewError } = await supabaseClient
+        .from('secret_views')
+        .insert({ secret_id: randomSecret.id, viewer_id: db.viewer_id });
+        
+      if (viewError) console.warn("Could not mark as seen:", viewError.message);
+
+      showSecretModal(randomSecret, "private");
+      
+      // KRİTİK DEĞİŞİM: Sadece bu oturum için kilit koy
+      sessionStorage.setItem("hasFetchedSecret", "true"); 
+      updateBtnStates();
+      
+    } else {
+      toast("No new private secrets found to fetch.", "error");
+      lock(fetchBtn, false, "Get a Private Secret"); 
+    }
+    
+  } catch (e) {
+    toast("Error fetching private secret: " + e.message, "error");
+    lock(fetchBtn, false, "Get a Private Secret");
+  }
+}
+
+// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (Aynı Kalır)
+async function loadLatestSecretsFeed() {
+  feedLoading.classList.remove("hidden");
+  feed.innerHTML = "";
+  
+  try {
+    // 1. Sırları Çek (Popüler Sırlar listesi için Top 3 eklendi)
+    const { data: popularSecrets, error: popularError } = await supabaseClient
+        .from('vibe_counts')
+        .select('secret_id, vibe_type, count')
+        .order('count', { ascending: false })
+        .limit(3);
+    
+    const popularIds = popularSecrets ? [...new Set(popularSecrets.map(v => v.secret_id))] : [];
+
+    // Top 20 en son sırrı çek
+    const { data: latestSecrets, error: latestError } = await supabaseClient
+      .from('secrets')
+      .select('id, nickname, content, public_key_for_replies')
+      .eq('is_public', true) 
+      .order('created_at', { ascending: false })
+      .limit(20);
+      
+    if (latestError) throw new Error(latestError.message);
+    
+    if (latestSecrets.length === 0) {
+      feedLoading.textContent = "No public secrets yet. Be the first!";
+      return;
+    }
+    
+    // 2. Tüm Tepkileri VIEW'den çek
+    const secretIds = latestSecrets.map(s => s.id);
+    const { data: vibesData, error: vibesError } = await supabaseClient
+      .from('vibe_counts') 
+      .select('secret_id, vibe_type, count')
+      .in('secret_id', secretIds);
+
+    if (vibesError) console.warn("Could not load vibes:", vibesError.message);
+    
+    // 3. Tepkileri sır ID'sine göre grupla
+    const vibesMap = {};
+    if (vibesData) {
+        vibesData.forEach(v => {
+            if (!vibesMap[v.secret_id]) vibesMap[v.secret_id] = {};
+            vibesMap[v.secret_id][v.vibe_type] = v.count;
+        });
+    }
+
+    feedLoading.classList.add("hidden");
+    
+    // 4. Feed'i Oluştur
+    latestSecrets.forEach(secret => {
+      const currentVibes = vibesMap[secret.id] || {};
+      const isPopular = popularIds.includes(secret.id);
+      
+      const div = document.createElement("div");
+      div.className = "bg-gray-800 p-3 rounded-lg border-2" + (isPopular ? " border-yellow-500 shadow-lg" : " border-gray-800"); // Popülerlik görseli
+      div.innerHTML = `
+        <p class="text-sm text-white whitespace-pre-line break-words">
+          ${isPopular ? '<span class="text-yellow-400 font-bold mr-1">🔥 HOT:</span>' : ''}
+          ${secret.content.substring(0, 100)}...
+        </p>
+        <div class="flex justify-between items-center mt-2">
+          <span class="text-xs text-cyan-400 font-semibold">${secret.nickname}</span>
+          <div class="flex items-center gap-3">
+              <div class="flex gap-2">
+                ${renderVibeButton(secret.id, 'love', '❤️', currentVibes['love'] || 0)}
+                ${renderVibeButton(secret.id, 'shock', '🤯', currentVibes['shock'] || 0)}
+                ${renderVibeButton(secret.id, 'funny', '😂', currentVibes['funny'] || 0)}
+              </div>
+              <button data-secret-id="${secret.id}" data-nickname="${secret.nickname}" data-content="${encodeURIComponent(secret.content)}" data-public-key='${secret.public_key_for_replies}' class="reply-to-public-btn text-xs bg-cyan-600 hover:bg-cyan-700 text-white py-1 px-2 rounded">
+                Reply
+              </button>
+          </div>
+        </div>
+      `;
+      feed.appendChild(div);
+    });
+    
+  } catch (e) {
+    feedLoading.textContent = "Error loading feed.";
+    toast("Error loading feed: " + e.message, "error");
+  }
+}
+
+// YENİ: Tepki Butonu HTML'i (Aynı Kalır)
+function renderVibeButton(secretId, vibeType, emoji, count) {
+    return `
+        <button 
+            data-secret-id="${secretId}" 
+            data-vibe-type="${vibeType}" 
+            class="vibe-btn text-xs bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded-full transition duration-150 flex items-center gap-1"
+            title="React with ${emoji}">
+            ${emoji}<span class="vibe-count">${count}</span>
+        </button>
+    `;
+}
+
+// YENİ: Tepki Gönderme İşlemi (VIBE HATASI ÇÖZÜMÜ)
+async function sendVibe(secretId, vibeType, button) {
+    const db = getLocalDatabase();
+    const countSpan = button.querySelector('.vibe-count');
+    const initialCount = countSpan ? parseInt(countSpan.textContent) : 0;
+    
+    // VIBE DÜZELTMESİ: Butonu hemen kilitle
+    lock(button, true, "..."); 
+    
+    const emojiMap = { 'love': '❤️', 'shock': '🤯', 'funny': '😂' };
+    const emoji = emojiMap[vibeType] || '👍'; 
+
+    try {
+        const { error } = await supabaseClient
+            .from('secret_vibes')
+            .insert({
+                secret_id: secretId,
+                viewer_id: db.viewer_id, 
+                vibe_type: vibeType
+            });
+            
+        if (error) {
+            if (error.code === '23505') { 
+                 toast("You have already reacted to this secret.", "info");
+                 button.disabled = true;
+                 button.classList.add("opacity-50", "cursor-not-allowed");
+                 return;
+            }
+            throw new Error(error.message);
+        }
+        
+        // Başarılı olursa sayacı artır ve butonu kilitle
+        if (countSpan) countSpan.textContent = initialCount + 1;
+        
+        toast(`Vibe ${emoji} sent!`, "success");
+        button.disabled = true;
+        button.classList.add("opacity-50", "cursor-not-allowed");
+        
+    } catch (e) {
+        toast("Error sending vibe: " + e.message, "error");
+    } finally {
+        // Hata durumunda butonu aç ve eski sayısını göster
+        if (!button.disabled) {
+            lock(button, false, `${emoji}${countSpan ? countSpan.textContent : ''}`); 
+        }
+    }
+}
+
+
+// YENİ: "Get a Private Secret" (Aynı Kalır)
+async function fetchPrivateSecret() {
+  lock(fetchBtn, true, "Fetching...");
+  const db = getLocalDatabase();
+  
+  try {
+    const { data: seenData, error: seenError } = await supabaseClient
+      .from('secret_views')
+      .select('secret_id')
+      .eq('viewer_id', db.viewer_id);
+      
+    if (seenError) throw new Error("Could not fetch viewed secrets: " + seenError.message);
+    const seenIds = seenData.map(r => r.secret_id);
+    
+    const mySecretIds = db.my_secrets.map(s => s.secret_id);
+    
+    const { data, error } = await supabaseClient
+      .from('secrets')
+      .select('id, nickname, content, public_key_for_replies')
+      .eq('is_public', false) 
+      .not('id', 'in', `(${[...mySecretIds, ...seenIds].join(',') || 0})`) 
+      .limit(50) 
+      .range(0, 49);
+
+    if (error) throw new Error("Fetch failed: " + error.message);
+
+    const unseen = data.filter(item => !seenIds.includes(item.id) && !mySecretIds.includes(item.id));
+    
+    if (unseen.length > 0) {
+      const randomSecret = unseen[Math.floor(Math.random() * unseen.length)];
+      
+      const { error: viewError } = await supabaseClient
+        .from('secret_views')
+        .insert({ secret_id: randomSecret.id, viewer_id: db.viewer_id });
+        
+      if (viewError) console.warn("Could not mark as seen:", viewError.message);
+
+      showSecretModal(randomSecret, "private");
+      
+      // KRİTİK DEĞİŞİM: Sadece bu oturum için kilit koy
+      sessionStorage.setItem("hasFetchedSecret", "true"); 
+      updateBtnStates();
+      
+    } else {
+      toast("No new private secrets found to fetch.", "error");
+      lock(fetchBtn, false, "Get a Private Secret"); 
+    }
+    
+  } catch (e) {
+    toast("Error fetching private secret: " + e.message, "error");
+    lock(fetchBtn, false, "Get a Private Secret");
+  }
+}
+
+// YENİ: Modal (ENGELLEME EKLENDİ - Aynı Kalır)
+function showSecretModal(secretObject, type = "public") {
+  
+  const { id: secret_id, nickname, content, public_key_for_replies } = secretObject;
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4";
+  
+  const modal = document.createElement("div");
+  modal.className = "bg-gray-900 text-white max-w-lg w-full rounded-xl shadow-xl p-6 text-left";
+  
+  // Engelleme durumunu kontrol et
+  const recipientPublicKeyJwk = JSON.parse(public_key_for_replies);
+  const isCurrentlyBlocked = isBlocked(recipientPublicKeyJwk);
+  
+  modal.innerHTML = `
+    <p class="text-sm ${type === 'private' ? 'text-red-400' : 'text-cyan-400'} mb-4 text-center">
+      You are viewing a ${type.toUpperCase()} secret from ${nickname}.
+    </p>
+    <p class="text-lg font-mono mb-6 whitespace-pre-line break-words bg-gray-800 p-4 rounded">${content}</p>
+    
+    <h4 class="font-semibold text-lg mb-2 text-cyan-300">Anonymous Reply to ${nickname}</h4>
+    <textarea id="replyTextarea" rows="3" class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white placeholder-gray-400" placeholder="Write an encrypted reply..."></textarea>
+    <button id="replyBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded transition duration-300 mt-3 w-full">
+      Send Reply (E2E Encrypted)
+    </button>
+    
+    <hr class="border-gray-700 my-6">
+    <div class="flex justify-between items-center gap-4">
+      <button id="blockBtn" class="flex-grow bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-600 hover:bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-700 text-white px-4 py-2 rounded-lg font-semibold">
+        ${isCurrentlyBlocked ? 'Unblock' : 'Block'} ${nickname}
+      </button>
+      <button id="copyBtn" class="flex-grow bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold">Copy Secret</button>
+      <button id="closeBtn" class="flex-grow bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-semibold">Close</button>
+    </div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  modal.querySelector("#closeBtn").addEventListener("click", () => overlay.remove());
+  modal.querySelector("#copyBtn").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(content); toast("Copied!", "success"); } 
+    catch { toast("Failed to copy", "error"); }
+  });
+  
+  // ENGELLEME İŞLEMİ
+  modal.querySelector("#blockBtn").addEventListener("click", () => {
+    const newBlockedState = toggleBlock(recipientPublicKeyJwk, nickname);
+    const blockBtn = modal.querySelector("#blockBtn");
+    
+    if (newBlockedState) {
+        blockBtn.textContent = `Unblock ${nickname}`;
+        blockBtn.classList.replace('bg-red-600', 'bg-yellow-600');
+        blockBtn.classList.replace('hover:bg-red-700', 'hover:bg-yellow-700');
+    } else {
+        blockBtn.textContent = `Block ${nickname}`;
+        blockBtn.classList.replace('bg-yellow-600', 'bg-red-600');
+        blockBtn.classList.replace('hover:bg-yellow-700', 'hover:bg-red-700');
+    }
+  });
+
+
+  // Cevaplama kısmı
+  modal.querySelector("#replyBtn").addEventListener("click", async () => {
+    const replyContent = modal.querySelector("#replyTextarea").value.trim();
+    if (replyContent.length < 5) {
+      toast("Reply must be at least 5 characters.", "error");
+      return;
+    }
+    
+    const replyBtn = modal.querySelector("#replyBtn");
+    lock(replyBtn, true, "Encrypting... Generating keys...");
+    
+    try {
+      const myReplyKeyPair = await generateE2EEKeyPair();
+      const myNickname = generateNickname();
+      
+      const recipientReplyKeyJwk = JSON.parse(public_key_for_replies);
+      
+      const myPrivateKey = await importPrivateKey(myReplyKeyPair.privateKeyJwk);
+      const sharedSecret = await deriveSharedSecret(myPrivateKey, recipientReplyKeyJwk);
+      
+      const { encrypted_content, iv } = await encryptChatMessage(replyContent, sharedSecret);
+      
+      const messagePayload = {
+        secret_id: secret_id,
+        sender_nickname: myNickname,
+        sender_public_key: JSON.stringify(myReplyKeyPair.publicKeyJwk),
+        encrypted_content: encrypted_content,
+        iv: iv
+      };
+      
+      const { data: insertedMsg, error: msgError } = await supabaseClient
+        .from('messages')
+        .insert(messagePayload)
+        .select('id')
+        .single();
+        
+      if (msgError) throw new Error("Message could not be sent: " + msgError.message);
+
+      // CRITICAL FIX: Kendi mesajımızın net metnini localStorage'a kaydet (Inbox hatası fix'i)
+      const currentSent = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
+      currentSent[insertedMsg.id] = replyContent;
+      localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
+      
+      toast("Encrypted reply sent!", "success");
+      modal.querySelector("#replyTextarea").value = "";
+      
+    } catch(e) {
+      toast("Error sending reply: " + e.message, "error"); 
+    } finally {
+      lock(replyBtn, false, "Send Reply (E2E Encrypted)");
+    }
+  });
+}
+
+// YENİ: "Get a Private Secret" (Aynı Kalır)
+async function fetchPrivateSecret() {
+  lock(fetchBtn, true, "Fetching...");
+  const db = getLocalDatabase();
+  
+  try {
+    const { data: seenData, error: seenError } = await supabaseClient
+      .from('secret_views')
+      .select('secret_id')
+      .eq('viewer_id', db.viewer_id);
+      
+    if (seenError) throw new Error("Could not fetch viewed secrets: " + seenError.message);
+    const seenIds = seenData.map(r => r.secret_id);
+    
+    const mySecretIds = db.my_secrets.map(s => s.secret_id);
+    
+    const { data, error } = await supabaseClient
+      .from('secrets')
+      .select('id, nickname, content, public_key_for_replies')
+      .eq('is_public', false) 
+      .not('id', 'in', `(${[...mySecretIds, ...seenIds].join(',') || 0})`) 
+      .limit(50) 
+      .range(0, 49);
+
+    if (error) throw new Error("Fetch failed: " + error.message);
+
+    const unseen = data.filter(item => !seenIds.includes(item.id) && !mySecretIds.includes(item.id));
+    
+    if (unseen.length > 0) {
+      const randomSecret = unseen[Math.floor(Math.random() * unseen.length)];
+      
+      const { error: viewError } = await supabaseClient
+        .from('secret_views')
+        .insert({ secret_id: randomSecret.id, viewer_id: db.viewer_id });
+        
+      if (viewError) console.warn("Could not mark as seen:", viewError.message);
+
+      showSecretModal(randomSecret, "private");
+      
+      // KRİTİK DEĞİŞİM: Sadece bu oturum için kilit koy
+      sessionStorage.setItem("hasFetchedSecret", "true"); 
+      updateBtnStates();
+      
+    } else {
+      toast("No new private secrets found to fetch.", "error");
+      lock(fetchBtn, false, "Get a Private Secret"); 
+    }
+    
+  } catch (e) {
+    toast("Error fetching private secret: " + e.message, "error");
+    lock(fetchBtn, false, "Get a Private Secret");
+  }
+}
+
+// YENİ: "Latest Secrets" (Public) Feed'ini Yükler (Aynı Kalır)
+async function loadLatestSecretsFeed() {
+  feedLoading.classList.remove("hidden");
+  feed.innerHTML = "";
+  
+  try {
+    // 1. Sırları Çek (Popüler Sırlar listesi için Top 3 eklendi)
+    const { data: popularSecrets, error: popularError } = await supabaseClient
+        .from('vibe_counts')
+        .select('secret_id, vibe_type, count')
+        .order('count', { ascending: false })
+        .limit(3);
+    
+    const popularIds = popularSecrets ? [...new Set(popularSecrets.map(v => v.secret_id))] : [];
+
+    // Top 20 en son sırrı çek
+    const { data: latestSecrets, error: latestError } = await supabaseClient
+      .from('secrets')
+      .select('id, nickname, content, public_key_for_replies')
+      .eq('is_public', true) 
+      .order('created_at', { ascending: false })
+      .limit(20);
+      
+    if (latestError) throw new Error(latestError.message);
+    
+    if (latestSecrets.length === 0) {
+      feedLoading.textContent = "No public secrets yet. Be the first!";
+      return;
+    }
+    
+    // 2. Tüm Tepkileri VIEW'den çek
+    const secretIds = latestSecrets.map(s => s.id);
+    const { data: vibesData, error: vibesError } = await supabaseClient
+      .from('vibe_counts') 
+      .select('secret_id, vibe_type, count')
+      .in('secret_id', secretIds);
+
+    if (vibesError) console.warn("Could not load vibes:", vibesError.message);
+    
+    // 3. Tepkileri sır ID'sine göre grupla
+    const vibesMap = {};
+    if (vibesData) {
+        vibesData.forEach(v => {
+            if (!vibesMap[v.secret_id]) vibesMap[v.secret_id] = {};
+            vibesMap[v.secret_id][v.vibe_type] = v.count;
+        });
+    }
+
+    feedLoading.classList.add("hidden");
+    
+    // 4. Feed'i Oluştur
+    latestSecrets.forEach(secret => {
+      const currentVibes = vibesMap[secret.id] || {};
+      const isPopular = popularIds.includes(secret.id);
+      
+      const div = document.createElement("div");
+      div.className = "bg-gray-800 p-3 rounded-lg border-2" + (isPopular ? " border-yellow-500 shadow-lg" : " border-gray-800"); // Popülerlik görseli
+      div.innerHTML = `
+        <p class="text-sm text-white whitespace-pre-line break-words">
+          ${isPopular ? '<span class="text-yellow-400 font-bold mr-1">🔥 HOT:</span>' : ''}
+          ${secret.content.substring(0, 100)}...
+        </p>
+        <div class="flex justify-between items-center mt-2">
+          <span class="text-xs text-cyan-400 font-semibold">${secret.nickname}</span>
+          <div class="flex items-center gap-3">
+              <div class="flex gap-2">
+                ${renderVibeButton(secret.id, 'love', '❤️', currentVibes['love'] || 0)}
+                ${renderVibeButton(secret.id, 'shock', '🤯', currentVibes['shock'] || 0)}
+                ${renderVibeButton(secret.id, 'funny', '😂', currentVibes['funny'] || 0)}
+              </div>
+              <button data-secret-id="${secret.id}" data-nickname="${secret.nickname}" data-content="${encodeURIComponent(secret.content)}" data-public-key='${secret.public_key_for_replies}' class="reply-to-public-btn text-xs bg-cyan-600 hover:bg-cyan-700 text-white py-1 px-2 rounded">
+                Reply
+              </button>
+          </div>
+        </div>
+      `;
+      feed.appendChild(div);
+    });
+    
+  } catch (e) {
+    feedLoading.textContent = "Error loading feed.";
+    toast("Error loading feed: " + e.message, "error");
+  }
+}
+
+// YENİ: Tepki Butonu HTML'i (Aynı Kalır)
+function renderVibeButton(secretId, vibeType, emoji, count) {
+    return `
+        <button 
+            data-secret-id="${secretId}" 
+            data-vibe-type="${vibeType}" 
+            class="vibe-btn text-xs bg-gray-700 hover:bg-gray-600 text-white py-1 px-2 rounded-full transition duration-150 flex items-center gap-1"
+            title="React with ${emoji}">
+            ${emoji}<span class="vibe-count">${count}</span>
+        </button>
+    `;
+}
+
+// YENİ: Tepki Gönderme İşlemi (VIBE HATASI ÇÖZÜMÜ)
+async function sendVibe(secretId, vibeType, button) {
+    const db = getLocalDatabase();
+    const countSpan = button.querySelector('.vibe-count');
+    const initialCount = countSpan ? parseInt(countSpan.textContent) : 0;
+    
+    // VIBE DÜZELTMESİ: Butonu hemen kilitle
+    lock(button, true, "..."); 
+    
+    const emojiMap = { 'love': '❤️', 'shock': '🤯', 'funny': '😂' };
+    const emoji = emojiMap[vibeType] || '👍'; 
+
+    try {
+        const { error } = await supabaseClient
+            .from('secret_vibes')
+            .insert({
+                secret_id: secretId,
+                viewer_id: db.viewer_id, 
+                vibe_type: vibeType
+            });
+            
+        if (error) {
+            if (error.code === '23505') { 
+                 toast("You have already reacted to this secret.", "info");
+                 button.disabled = true;
+                 button.classList.add("opacity-50", "cursor-not-allowed");
+                 return;
+            }
+            throw new Error(error.message);
+        }
+        
+        // Başarılı olursa sayacı artır ve butonu kilitle
+        if (countSpan) countSpan.textContent = initialCount + 1;
+        
+        toast(`Vibe ${emoji} sent!`, "success");
+        button.disabled = true;
+        button.classList.add("opacity-50", "cursor-not-allowed");
+        
+    } catch (e) {
+        toast("Error sending vibe: " + e.message, "error");
+    } finally {
+        // Hata durumunda butonu aç ve eski sayısını göster
+        if (!button.disabled) {
+            lock(button, false, `${emoji}${countSpan ? countSpan.textContent : ''}`); 
+        }
+    }
+}
+
+
+// YENİ: "Get a Private Secret" (Aynı Kalır)
+async function fetchPrivateSecret() {
+  lock(fetchBtn, true, "Fetching...");
+  const db = getLocalDatabase();
+  
+  try {
+    const { data: seenData, error: seenError } = await supabaseClient
+      .from('secret_views')
+      .select('secret_id')
+      .eq('viewer_id', db.viewer_id);
+      
+    if (seenError) throw new Error("Could not fetch viewed secrets: " + seenError.message);
+    const seenIds = seenData.map(r => r.secret_id);
+    
+    const mySecretIds = db.my_secrets.map(s => s.secret_id);
+    
+    const { data, error } = await supabaseClient
+      .from('secrets')
+      .select('id, nickname, content, public_key_for_replies')
+      .eq('is_public', false) 
+      .not('id', 'in', `(${[...mySecretIds, ...seenIds].join(',') || 0})`) 
+      .limit(50) 
+      .range(0, 49);
+
+    if (error) throw new Error("Fetch failed: " + error.message);
+
+    const unseen = data.filter(item => !seenIds.includes(item.id) && !mySecretIds.includes(item.id));
+    
+    if (unseen.length > 0) {
+      const randomSecret = unseen[Math.floor(Math.random() * unseen.length)];
+      
+      const { error: viewError } = await supabaseClient
+        .from('secret_views')
+        .insert({ secret_id: randomSecret.id, viewer_id: db.viewer_id });
+        
+      if (viewError) console.warn("Could not mark as seen:", viewError.message);
+
+      showSecretModal(randomSecret, "private");
+      
+      // KRİTİK DEĞİŞİM: Sadece bu oturum için kilit koy
+      sessionStorage.setItem("hasFetchedSecret", "true"); 
+      updateBtnStates();
+      
+    } else {
+      toast("No new private secrets found to fetch.", "error");
+      lock(fetchBtn, false, "Get a Private Secret"); 
+    }
+    
+  } catch (e) {
+    toast("Error fetching private secret: " + e.message, "error");
+    lock(fetchBtn, false, "Get a Private Secret");
+  }
+}
+
+// YENİ: Modal (ENGELLEME EKLENDİ - Aynı Kalır)
+function showSecretModal(secretObject, type = "public") {
+  
+  const { id: secret_id, nickname, content, public_key_for_replies } = secretObject;
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4";
+  
+  const modal = document.createElement("div");
+  modal.className = "bg-gray-900 text-white max-w-lg w-full rounded-xl shadow-xl p-6 text-left";
+  
+  // Engelleme durumunu kontrol et
+  const recipientPublicKeyJwk = JSON.parse(public_key_for_replies);
+  const isCurrentlyBlocked = isBlocked(recipientPublicKeyJwk);
+  
+  modal.innerHTML = `
+    <p class="text-sm ${type === 'private' ? 'text-red-400' : 'text-cyan-400'} mb-4 text-center">
+      You are viewing a ${type.toUpperCase()} secret from ${nickname}.
+    </p>
+    <p class="text-lg font-mono mb-6 whitespace-pre-line break-words bg-gray-800 p-4 rounded">${content}</p>
+    
+    <h4 class="font-semibold text-lg mb-2 text-cyan-300">Anonymous Reply to ${nickname}</h4>
+    <textarea id="replyTextarea" rows="3" class="w-full p-2 rounded bg-gray-800 border border-gray-700 text-white placeholder-gray-400" placeholder="Write an encrypted reply..."></textarea>
+    <button id="replyBtn" class="bg-cyan-600 hover:bg-cyan-700 text-white font-semibold py-2 px-4 rounded transition duration-300 mt-3 w-full">
+      Send Reply (E2E Encrypted)
+    </button>
+    
+    <hr class="border-gray-700 my-6">
+    <div class="flex justify-between items-center gap-4">
+      <button id="blockBtn" class="flex-grow bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-600 hover:bg-${isCurrentlyBlocked ? 'yellow' : 'red'}-700 text-white px-4 py-2 rounded-lg font-semibold">
+        ${isCurrentlyBlocked ? 'Unblock' : 'Block'} ${nickname}
+      </button>
+      <button id="copyBtn" class="flex-grow bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-semibold">Copy Secret</button>
+      <button id="closeBtn" class="flex-grow bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-lg font-semibold">Close</button>
+    </div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  modal.querySelector("#closeBtn").addEventListener("click", () => overlay.remove());
+  modal.querySelector("#copyBtn").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(content); toast("Copied!", "success"); } 
+    catch { toast("Failed to copy", "error"); }
+  });
+  
+  // ENGELLEME İŞLEMİ
+  modal.querySelector("#blockBtn").addEventListener("click", () => {
+    const newBlockedState = toggleBlock(recipientPublicKeyJwk, nickname);
+    const blockBtn = modal.querySelector("#blockBtn");
+    
+    if (newBlockedState) {
+        blockBtn.textContent = `Unblock ${nickname}`;
+        blockBtn.classList.replace('bg-red-600', 'bg-yellow-600');
+        blockBtn.classList.replace('hover:bg-red-700', 'hover:bg-yellow-700');
+    } else {
+        blockBtn.textContent = `Block ${nickname}`;
+        blockBtn.classList.replace('bg-yellow-600', 'bg-red-600');
+        blockBtn.classList.replace('hover:bg-yellow-700', 'hover:bg-red-700');
+    }
+  });
+
+
+  // Cevaplama kısmı
+  modal.querySelector("#replyBtn").addEventListener("click", async () => {
+    const replyContent = modal.querySelector("#replyTextarea").value.trim();
+    if (replyContent.length < 5) {
+      toast("Reply must be at least 5 characters.", "error");
+      return;
+    }
+    
+    const replyBtn = modal.querySelector("#replyBtn");
+    lock(replyBtn, true, "Encrypting... Generating keys...");
+    
+    try {
+      const myReplyKeyPair = await generateE2EEKeyPair();
+      const myNickname = generateNickname();
+      
+      const recipientReplyKeyJwk = JSON.parse(public_key_for_replies);
+      
+      const myPrivateKey = await importPrivateKey(myReplyKeyPair.privateKeyJwk);
+      const sharedSecret = await deriveSharedSecret(myPrivateKey, recipientReplyKeyJwk);
+      
+      const { encrypted_content, iv } = await encryptChatMessage(replyContent, sharedSecret);
+      
+      const messagePayload = {
+        secret_id: secret_id,
+        sender_nickname: myNickname,
+        sender_public_key: JSON.stringify(myReplyKeyPair.publicKeyJwk),
+        encrypted_content: encrypted_content,
+        iv: iv
+      };
+      
+      const { data: insertedMsg, error: msgError } = await supabaseClient
+        .from('messages')
+        .insert(messagePayload)
+        .select('id')
+        .single();
+        
+      if (msgError) throw new Error("Message could not be sent: " + msgError.message);
+
+      // CRITICAL FIX: Kendi mesajımızın net metnini localStorage'a kaydet (Inbox hatası fix'i)
+      const currentSent = JSON.parse(localStorage.getItem('my_sent_messages_clear_text') || '{}');
+      currentSent[insertedMsg.id] = replyContent;
+      localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
+      
+      toast("Encrypted reply sent!", "success");
+      modal.querySelector("#replyTextarea").value = "";
+      
+    } catch(e) {
+      toast("Error sending reply: " + e.message, "error"); 
+    } finally {
+      lock(replyBtn, false, "Send Reply (E2E Encrypted)");
+    }
+  });
+}
+
 // YENİ: "Inbox" (ENGELLEME VE KENDİ/KARŞI TARAF MESAJ AYRIMI İLE ÇÖZÜM)
 async function showInboxModal() {
   const db = getLocalDatabase();
@@ -1017,6 +1757,7 @@ async function showInboxModal() {
     
     const conversations = {};
     const myPublicKeys = db.my_secrets.map(s => JSON.stringify(s.public_key_for_replies));
+    const allPartners = {}; // Partner nickname'ini kaydetmek için
 
     // 1. Gruplama: Mesajları secret_id ve partner key'e göre grupla
     for (const msg of messages) {
@@ -1030,20 +1771,20 @@ async function showInboxModal() {
         let partnerNickname;
 
         if (isMyMessage) {
-            // Eğer mesaj benden gittiyse, partner key'i o thread'deki diğer (karşı) anahtar olmalıdır.
-            // Bu zor olduğu için, geçici olarak partner key'ini msg.sender_public_key'den alıyoruz.
-            // Bu, daha sonra aşağıdaki konsolidasyon adımında çözülecektir.
+            // Mesaj benden gittiyse, partner key'i o konuşmanın diğer tarafı olmalı.
+            // Bu, aşağıdaki ikinci adımda çözülecek geçici bir yer tutucudur.
             partnerKey = 'PENDING_RESOLVE_' + msg.secret_id; 
             partnerNickname = targetSecret.nickname; // Benim nickim
         } else {
-            // Mesaj karşıdan gelmişse, bu anahtar partnerin anahtarıdır.
+            // Mesaj karşıdan geldiyse, bu onun anahtarıdır.
             partnerKey = msg.sender_public_key;
             partnerNickname = msg.sender_nickname;
         }
         
+        // Benzersiz Konuşma ID'si
         const convoId = `${msg.secret_id}:${partnerKey}`; 
         
-        // Engelleme Kontrolü (Sadece gelen mesajlar için kontrol)
+        // Engelleme Kontrolü
         if (!isMyMessage) {
             if (isBlocked(JSON.parse(partnerKey))) {
                 continue; 
@@ -1059,36 +1800,48 @@ async function showInboxModal() {
             };
         }
         conversations[convoId].messages.push(msg);
+
+        // Partner nickini kaydet (Konsolidasyon için)
+        if (!isMyMessage) {
+            allPartners[msg.sender_public_key] = msg.sender_nickname;
+        }
     }
     
     const uniqueConversations = {};
     
-    // 2. Konsolidasyon ve Partner Key Çözümlemesi
+    // 2. Konsolidasyon ve Partner Key Çözümlemesi (Hata 1 Çözümü)
     for(const key in conversations) {
         const convo = conversations[key];
         let finalPartnerKey = convo.partner_public_key;
         let finalPartnerNickname = convo.partner_nickname;
 
         if (finalPartnerKey.startsWith('PENDING_RESOLVE_')) {
-            // Kendi mesajlarımızı içeren bir grupsa, partner key'i bulmalıyız.
-            const actualPartnerMsg = convo.messages.find(m => !myPublicKeys.includes(m.sender_public_key));
-            if (actualPartnerMsg) {
-                finalPartnerKey = actualPartnerMsg.sender_public_key;
-                finalPartnerNickname = actualPartnerMsg.sender_nickname;
+            // Kendi mesajlarımızı içeren bir grupsa, gerçek partner key'i bul.
+            const partnerMsg = convo.messages.find(m => !myPublicKeys.includes(m.sender_public_key));
+            if (partnerMsg) {
+                finalPartnerKey = partnerMsg.sender_public_key;
+                finalPartnerNickname = partnerMsg.sender_nickname;
             } else {
-                // Konuşmada sadece giden mesaj varsa (cevap gelmemişse)
-                finalPartnerKey = 'NO_PARTNER'; 
+                // Cevap gelmeyenleri liste dışında tutmak için özel anahtar
+                finalPartnerKey = 'NO_REPLIES'; 
                 finalPartnerNickname = '[No Replies Yet]';
             }
         }
         
+        // Final Convo Key: Secret ID + Gerçek Partner Key
         const finalConvoKey = `${convo.secret_id}:${finalPartnerKey}`;
+        
+        // Engellenmiş kullanıcıların mesajları hala burada olabilir, engellemeyi tekrar kontrol et
+        if (finalPartnerKey !== 'NO_REPLIES' && isBlocked(JSON.parse(finalPartnerKey))) {
+            continue;
+        }
         
         if (!uniqueConversations[finalConvoKey]) {
             uniqueConversations[finalConvoKey] = convo;
             uniqueConversations[finalConvoKey].partner_public_key = finalPartnerKey;
-            uniqueConversations[finalConvoKey].partner_nickname = finalPartnerNickname; // Nickname'i güncelle
+            uniqueConversations[finalConvoKey].partner_nickname = finalPartnerNickname; 
         } else {
+            // Mesajları birleştir
             uniqueConversations[finalConvoKey].messages.push(...convo.messages);
         }
     }
@@ -1097,7 +1850,7 @@ async function showInboxModal() {
     // 3. Konuşma Listesini Gösterme
     for (const convoKey in uniqueConversations) {
         const convo = uniqueConversations[convoKey];
-        if (convo.partner_public_key === 'NO_PARTNER') continue; // Cevap gelmeyenleri gösterme
+        if (convo.partner_public_key === 'NO_REPLIES') continue; // Cevap gelmeyenleri gösterme
         
         convo.messages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
         
@@ -1106,6 +1859,7 @@ async function showInboxModal() {
         
         // Hata Düzeltmesi: Her zaman partner nickname'i göster.
         let displayNickname = isCurrentlyBlocked ? "[BLOCKED USER]" : convo.partner_nickname;
+        
         
         const div = document.createElement("div");
         div.className = "p-3 bg-gray-900 rounded-lg cursor-pointer hover:bg-gray-700";
@@ -1117,6 +1871,7 @@ async function showInboxModal() {
         div.addEventListener("click", async () => {
             Array.from(convoListEl.children).forEach(child => child.classList.remove('bg-cyan-900'));
             div.classList.add('bg-cyan-900');
+            // Konuşma panelini yüklerken doğru partner key'i kullanıldığından emin ol
             await loadConversation(modal, convo);
         });
         convoListEl.appendChild(div);
@@ -1129,7 +1884,7 @@ async function showInboxModal() {
   }
 }
 
-// YENİ: Seçilen Sohbeti Yükler (ENGELLEME BUTONU VE NİCK DÜZELTMESİ EKLENDİ)
+// YENİ: Seçilen Sohbeti Yükler (ENGELLEME BUTONU VE KENDİ MESAJININ GÖSTERİLMESİ)
 async function loadConversation(modal, convo) {
   const messageFeed = modal.querySelector("#message-feed");
   const replyArea = modal.querySelector("#inbox-reply-area");
@@ -1169,8 +1924,10 @@ async function loadConversation(modal, convo) {
       let decryptedText = "[Cannot decrypt]"; 
       
       if (isMyMessage) {
+          // KENDİ MESAJIMIZ: LocalStorage'dan metni al
           decryptedText = mySentMessagesClearText[msg.id] || "[Clear text not found in local storage]"; 
       } else {
+          // KARŞI TARAFIN MESAJI: Gelen kutusu mesajını çöz
           decryptedText = await decryptChatMessage(msg.encrypted_content, msg.iv, sharedSecret);
       }
       
@@ -1238,14 +1995,13 @@ async function loadConversation(modal, convo) {
         }
         
         // Konuşmayı yenile (mesaj maskelerini güncellemek için)
-        // Yeni engelleme durumunu yansıtmak için konuşmayı yeniden yükle
         loadConversation(modal, { ...convo, partner_public_key: partnerKeyString }); 
     });
     
     replyArea.classList.remove("hidden");
     replyText.value = "";
     
-    // Cevap Gönderme (Aynı Kalır)
+    // Cevap Gönderme (Kendi mesajının anında gösterilmesi)
     replyBtn.onclick = async () => {
       const replyContent = replyText.value.trim();
       if (replyContent.length < 2) {
@@ -1278,6 +2034,7 @@ async function loadConversation(modal, convo) {
         currentSent[insertedMsg.id] = replyContent;
         localStorage.setItem('my_sent_messages_clear_text', JSON.stringify(currentSent));
 
+        // Mesaj gönderildikten sonra mesaj kutusuna manuel ekleme
         const msgDiv = document.createElement("div");
         msgDiv.className = "flex justify-end";
         msgDiv.innerHTML = `
