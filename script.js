@@ -3,8 +3,8 @@
 // =========================================================================================
 
 // ========== CONFIG (FINAL) ==========
-const SUPABASE_URL = "https://ukalifoxsciqbeyrupmu.supabase.co"; 
-const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVrYWxpZm94c2NpcWJleXJ1cG11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MzkxNjAsImV4cCI6MjA3ODIxNTE2MH0.7bqIlsYIiooYb-zC29FYscjePWpfRrQY_d_01w756Gk";
+const SUPABASE_URL = "https://qrcjlhdxyftexmrhailo.supabase.co"; 
+const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFyY2psaGR4eWZ0ZXhtcmhhaWxvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMxMzQ0NjAsImV4cCI6MjA3ODcxMDQ2MH0.3bp0cj8XsxdiiGm3GanJ34S9J351zSLI6pHc9Nf4HLA";
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, API_KEY);
 
